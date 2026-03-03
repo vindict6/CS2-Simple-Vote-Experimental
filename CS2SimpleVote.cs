@@ -487,6 +487,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     [ConsoleCommand("testmenu", "Test creating a point_worldtext menu")]
     public void OnTestMenuCommand(CCSPlayerController? player, CommandInfo command) => AttemptTestMenu(player);
 
+    [ConsoleCommand("endwarmup", "End the warmup round (Admin only)")]
+    public void OnEndWarmupCommand(CCSPlayerController? player, CommandInfo command) => AttemptEndWarmup(player);
+
     [ConsoleCommand("help", "List available commands")]
     public void OnHelpCommand(CCSPlayerController? player, CommandInfo command) => PrintHelp(player);
 
@@ -515,6 +518,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (cmd.Equals("nominatelist", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintNominationList(p)); return HookResult.Continue; }
         if (cmd.Equals("help", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintHelp(p)); return HookResult.Continue; }
         if (cmd.Equals("forcevote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptForceVote(p)); return HookResult.Continue; }
+        if (cmd.Equals("endwarmup", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptEndWarmup(p)); return HookResult.Continue; }
         if (cmd.Equals("testmenu", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptTestMenu(p)); return HookResult.Continue; }
         if (cmd.Equals("votedebug", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptVoteDebug(p)); return HookResult.Continue; }
         if (cmd.Equals("revote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptRevote(p)); return HookResult.Continue; }
@@ -1063,6 +1067,29 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     private void CloseSetNextMapMenu(CCSPlayerController player) { _setnextmapPlayers.Remove(player.Slot); _playerSetNextMapPage.Remove(player.Slot); }
 
+    // --- EndWarmup Logic ---
+    private void AttemptEndWarmup(CCSPlayerController? player)
+    {
+        LogRoutine(new { player }, null);
+        if (!IsValidPlayer(player)) return;
+        var p = player!;
+
+        if (!Config.Admins.Contains(p.SteamID))
+        {
+            p.PrintToChat($" {ColorDefault} You do not have permission to use this command.");
+            return;
+        }
+
+        if (!IsWarmup())
+        {
+            p.PrintToChat($" {ColorDefault} The game is not in warmup.");
+            return;
+        }
+
+        Server.ExecuteCommand("mp_warmup_end");
+        Server.PrintToChatAll($" {ColorDefault} Admin {ColorGreen}{p.PlayerName}{ColorDefault} ended the warmup.");
+    }
+
     // --- ForceVote Logic ---
     private void AttemptForceVote(CCSPlayerController? player)
     {
@@ -1348,13 +1375,24 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _testMenuTexts.Clear();
     }
 
-    private string GetVoteMenuString()
+    private string GetVoteMenuString(bool isTestMenu = false)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"{ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:");
-        foreach (var kvp in _activeVoteOptions)
+        if (isTestMenu)
         {
-            sb.AppendLine($"{ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}");
+            sb.AppendLine($"<font color=\"white\">Type the </font><font color=\"green\">number</font><font color=\"white\"> to vote:</font>");
+            foreach (var kvp in _activeVoteOptions)
+            {
+                sb.AppendLine($"<font color=\"green\">[{kvp.Key}]</font> <font color=\"white\">{GetMapName(kvp.Value)}</font>");
+            }
+        }
+        else
+        {
+            sb.AppendLine($"{ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:");
+            foreach (var kvp in _activeVoteOptions)
+            {
+                sb.AppendLine($"{ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}");
+            }
         }
         return sb.ToString();
     }
@@ -1381,12 +1419,17 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
                 if (wp != null)
                 {
-                    wp.MessageText = GetVoteMenuString();
+                    wp.MessageText = GetVoteMenuString(true);
                     wp.Enabled = true;
                     // Usually between 20-50 works nicely for distance 120
-                    wp.FontSize = 40; 
+                    wp.FontSize = 20; 
                     wp.Color = System.Drawing.Color.White; 
                     wp.DispatchSpawn();
+                    wp.AcceptInput("Enable", null, null, "");
+
+                    Utilities.SetStateChanged(wp, "CPointWorldText", "m_bEnabled");
+                    Utilities.SetStateChanged(wp, "CPointWorldText", "m_messageText");
+
                     _testMenuTexts[p.Slot] = wp;
                 }
                 else
@@ -1410,9 +1453,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 float eyeZ = p.PlayerPawn.Value.AbsOrigin.Z + 64f; 
 
                 Vector pos = new Vector(
-                    p.PlayerPawn.Value.AbsOrigin.X + fwdX * 200f,
-                    p.PlayerPawn.Value.AbsOrigin.Y + fwdY * 200f,
-                    eyeZ + fwdZ * 200f
+                    p.PlayerPawn.Value.AbsOrigin.X + fwdX * 100f,
+                    p.PlayerPawn.Value.AbsOrigin.Y + fwdY * 100f,
+                    eyeZ + fwdZ * 100f
                 );
 
                 wp.Teleport(pos, new QAngle(pitch, yaw - 180f, 0), new Vector(0, 0, 0));
