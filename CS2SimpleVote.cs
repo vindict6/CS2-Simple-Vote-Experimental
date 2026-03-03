@@ -1421,18 +1421,18 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 {
                     wp.MessageText = "";
                     wp.Enabled = true;
-                    wp.FontSize = 50; 
+wp.FontSize = 40; 
                     wp.FontName = "Arial Bold";
                     wp.Fullbright = true;
-                    wp.WorldUnitsPerPx = 0.15f;
-                    wp.Color = System.Drawing.Color.LimeGreen;
+                    wp.WorldUnitsPerPx = 0.10f;
+                    wp.Color = System.Drawing.Color.LimeGreen; 
 
                     wp.DrawBackground = true;
                     wp.BackgroundBorderHeight = 0.3f;
                     wp.BackgroundBorderWidth = 0.15f;
 
-                    wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_CENTER;
-                    wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_BOTTOM;
+                    wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
+                    wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
                     wp.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
                     
                     wp.DispatchSpawn();
@@ -1464,12 +1464,24 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 float fwdY = cp * sy;
                 float fwdZ = -sp;
 
+                float rightX = sy;
+                float rightY = -cy;
+                float rightZ = 0f;
+
+                float upX = sp * cy;
+                float upY = sp * sy;
+                float upZ = cp;
+
                 float viewOffsetZ = p.PlayerPawn.Value.ViewOffset != null ? p.PlayerPawn.Value.ViewOffset.Z : 64f;
 
+                float fwdDist = 100f;
+                float rightDist = 20f;
+                float upDist = 20f;
+
                 Vector pos = new Vector(
-                    p.PlayerPawn.Value.AbsOrigin.X + fwdX * 100f,
-                    p.PlayerPawn.Value.AbsOrigin.Y + fwdY * 100f,
-                    p.PlayerPawn.Value.AbsOrigin.Z + viewOffsetZ + fwdZ * 100f
+                    p.PlayerPawn.Value.AbsOrigin.X + fwdX * fwdDist + rightX * rightDist + upX * upDist,
+                    p.PlayerPawn.Value.AbsOrigin.Y + fwdY * fwdDist + rightY * rightDist + upY * upDist,
+                    p.PlayerPawn.Value.AbsOrigin.Z + viewOffsetZ + fwdZ * fwdDist + upZ * upDist
                 );
 
                 // CS2-GameHUD sets Y = yaw + 270, Z = 90 - pitch, X = 0 (default struct)
