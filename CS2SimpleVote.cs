@@ -1380,10 +1380,10 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         var sb = new StringBuilder();
         if (isTestMenu)
         {
-            sb.AppendLine($"<font color=\"white\">Type the </font><font color=\"green\">number</font><font color=\"white\"> to vote:</font>");
+            sb.AppendLine("Type the number to vote:");
             foreach (var kvp in _activeVoteOptions)
             {
-                sb.AppendLine($"<font color=\"green\">[{kvp.Key}]</font> <font color=\"white\">{GetMapName(kvp.Value)}</font>");
+                sb.AppendLine($"[{kvp.Key}] {GetMapName(kvp.Value)}");
             }
         }
         else
@@ -1421,12 +1421,18 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 {
                     wp.MessageText = "";
                     wp.Enabled = true;
-                    wp.FontSize = 20; 
+                    wp.FontSize = 24; 
+                    wp.FontName = "Arial Bold";
                     wp.Fullbright = true;
-                    wp.WorldUnitsPerPx = 0.25f;
-                    wp.Color = System.Drawing.Color.White; 
-                    wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
-                    wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
+                    wp.WorldUnitsPerPx = 0.03f;
+                    wp.Color = System.Drawing.Color.Aqua;
+
+                    wp.DrawBackground = true;
+                    wp.BackgroundBorderHeight = 0.3f;
+                    wp.BackgroundBorderWidth = 0.15f;
+
+                    wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_CENTER;
+                    wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_BOTTOM;
                     wp.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
                     
                     wp.DispatchSpawn();
