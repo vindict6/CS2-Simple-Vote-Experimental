@@ -1419,13 +1419,15 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
                 if (wp != null)
                 {
-                    wp.MessageText = GetVoteMenuString(true);
+                    wp.MessageText = "";
                     wp.Enabled = true;
-                    // Usually between 20-50 works nicely for distance 120
                     wp.FontSize = 20; 
                     wp.Color = System.Drawing.Color.White; 
+                    
                     wp.DispatchSpawn();
-                    wp.AcceptInput("Enable", null, null, "");
+                    
+                    wp.AcceptInput("SetParent", p.PlayerPawn.Value, null, "!activator");
+                    wp.AcceptInput("SetMessage", null, null, GetVoteMenuString(true));
 
                     Utilities.SetStateChanged(wp, "CPointWorldText", "m_bEnabled");
                     Utilities.SetStateChanged(wp, "CPointWorldText", "m_messageText");
