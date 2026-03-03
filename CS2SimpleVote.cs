@@ -67,6 +67,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     // State: Voting
     private bool _voteInProgress;
+    private bool _isTestMenuVote;
+    private CounterStrikeSharp.API.Modules.Timers.Timer? _testMenuTimer;
+    private readonly Dictionary<int, CPointWorldText> _testMenuTexts = new();
     private bool _voteFinished;
     private bool _isScheduledVote;
     private int _currentVoteRoundDuration;
@@ -168,6 +171,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         LogRoutine(new { hotReload }, null);
         _unloaded = true;
         _logQueue.CompleteAdding();
+
+        TeardownTestMenus();
 
         // Kill all timers first to prevent any further execution
         _reminderTimer?.Kill();
@@ -479,6 +484,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     [ConsoleCommand("forcevote", "Force start map vote (Admin only)")]
     public void OnForceVoteCommand(CCSPlayerController? player, CommandInfo command) => AttemptForceVote(player);
 
+    [ConsoleCommand("testmenu", "Test creating a point_worldtext menu")]
+    public void OnTestMenuCommand(CCSPlayerController? player, CommandInfo command) => AttemptTestMenu(player);
+
     [ConsoleCommand("help", "List available commands")]
     public void OnHelpCommand(CCSPlayerController? player, CommandInfo command) => PrintHelp(player);
 
@@ -507,6 +515,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (cmd.Equals("nominatelist", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintNominationList(p)); return HookResult.Continue; }
         if (cmd.Equals("help", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintHelp(p)); return HookResult.Continue; }
         if (cmd.Equals("forcevote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptForceVote(p)); return HookResult.Continue; }
+        if (cmd.Equals("testmenu", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptTestMenu(p)); return HookResult.Continue; }
         if (cmd.Equals("votedebug", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptVoteDebug(p)); return HookResult.Continue; }
         if (cmd.Equals("revote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptRevote(p)); return HookResult.Continue; }
         if (cmd.Equals("nextmap", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintNextMap(p)); return HookResult.Continue; }
@@ -1089,9 +1098,45 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         StartMapVote(isRtv: false, isForceVote: true);
     }
 
-    private void StartMapVote(bool isRtv, bool isForceVote = false)
+
+    // --- TestMenu Logic ---
+    private void AttemptTestMenu(CCSPlayerController? player)
     {
-        LogRoutine(new { isRtv, isForceVote }, null);
+        LogRoutine(new { player }, null);
+        if (!IsValidPlayer(player)) return;
+        var p = player!;
+
+        if (!Config.Admins.Contains(p.SteamID))
+        {
+            p.PrintToChat($" {ColorDefault} You do not have permission to use this command.");
+            return;
+        }
+
+        if (IsWarmup())
+        {
+            p.PrintToChat($" {ColorDefault} Cannot start vote during warmup.");
+            return;
+        }
+
+        if (_matchEnded)
+        {
+            p.PrintToChat($" {ColorDefault} Cannot start vote after match end.");
+            return;
+        }
+
+        if (_voteInProgress)
+        {
+            p.PrintToChat($" {ColorDefault}A vote is already in progress.");
+            return;
+        }
+
+        Server.PrintToChatAll($" {ColorDefault} Admin {ColorGreen}{p.PlayerName}{ColorDefault} initiated a test menu vote.");
+        StartMapVote(isRtv: false, isForceVote: true, isTestMenu: true);
+    }
+
+    private void StartMapVote(bool isRtv, bool isForceVote = false, bool isTestMenu = false)
+    {
+        LogRoutine(new { isRtv, isForceVote, isTestMenu }, null);
         // 1. If force vote happening AFTER a finished vote, we must backup the result
         if (isForceVote && _voteFinished)
         {
@@ -1108,6 +1153,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         bool isRevote = isForceVote && _previousWinningMapId != null;
         _isScheduledVote = (!isRtv && !isForceVote) || (isForceVote && !isRevote);
         _isForceVote = isForceVote;
+        _isTestMenuVote = isTestMenu;
 
         _nextMapName = null; 
         _pendingMapId = null;
@@ -1160,7 +1206,14 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                : $" {ColorDefault}Vote will remain open until the round ends.");
         }
 
-        PrintVoteOptionsToAll();
+        if (_isTestMenuVote) 
+        {
+            SetupTestMenus();
+        }
+        else 
+        {
+            PrintVoteOptionsToAll();
+        }
 
         if (Config.EnableReminders)
         {
@@ -1204,6 +1257,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (!_voteInProgress) return;
         _voteInProgress = false; _voteFinished = true; _reminderTimer?.Kill(); _reminderTimer = null;
         _centerMessageTimer?.Kill(); _centerMessageTimer = null;
+        TeardownTestMenus();
         string winningMapId; int voteCount;
 
         // Special Logic: Force Vote with existing winner
@@ -1276,6 +1330,95 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     private void PrintVoteOptionsToAll() { foreach (var p in GetHumanPlayers()) PrintVoteOptionsToPlayer(p); }
     private void PrintVoteOptionsToPlayer(CCSPlayerController player) { player.PrintToChat($" {ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:"); foreach (var kvp in _activeVoteOptions) player.PrintToChat($" {ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}"); }
+
+    private void SetupTestMenus()
+    {
+        TeardownTestMenus();
+        _testMenuTimer = AddTimer(0.01f, UpdateTestMenus, TimerFlags.REPEAT);
+    }
+
+    private void TeardownTestMenus()
+    {
+        if (_testMenuTimer != null) { _testMenuTimer.Kill(); _testMenuTimer = null; }
+        
+        foreach (var wp in _testMenuTexts.Values)
+        {
+            if (wp != null && wp.IsValid) wp.Remove();
+        }
+        _testMenuTexts.Clear();
+    }
+
+    private string GetVoteMenuString()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"{ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:");
+        foreach (var kvp in _activeVoteOptions)
+        {
+            sb.AppendLine($"{ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}");
+        }
+        return sb.ToString();
+    }
+
+    private void UpdateTestMenus()
+    {
+        if (_unloaded || !_voteInProgress || !_isTestMenuVote) return;
+
+        foreach (var p in GetHumanPlayers())
+        {
+            // Hide if they voted or if something is wrong
+            if (_playerVotes.ContainsKey(p.Slot) || p.PlayerPawn.Value == null)
+            {
+                if (_testMenuTexts.TryGetValue(p.Slot, out var oldWp))
+                {
+                    if (oldWp != null && oldWp.IsValid) oldWp.Remove();
+                    _testMenuTexts.Remove(p.Slot);
+                }
+                continue;
+            }
+
+            if (!_testMenuTexts.TryGetValue(p.Slot, out var wp) || wp == null || !wp.IsValid)
+            {
+                wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
+                if (wp != null)
+                {
+                    wp.MessageText = GetVoteMenuString();
+                    wp.Enabled = true;
+                    // Usually between 20-50 works nicely for distance 120
+                    wp.FontSize = 40; 
+                    wp.Color = System.Drawing.Color.White; 
+                    wp.DispatchSpawn();
+                    _testMenuTexts[p.Slot] = wp;
+                }
+                else
+                {
+                    continue; // fail safe
+                }
+            }
+
+            // Keep updating it to stay in front of the player's camera
+            if (wp != null && wp.IsValid && p.PlayerPawn.Value != null && p.PlayerPawn.Value.AbsOrigin != null && p.PlayerPawn.Value.EyeAngles != null)
+            {
+                var pitch = p.PlayerPawn.Value.EyeAngles.X;
+                var yaw = p.PlayerPawn.Value.EyeAngles.Y;
+                float pitchRad = pitch * MathF.PI / 180f;
+                float yawRad = yaw * MathF.PI / 180f;
+
+                float fwdX = (float)(Math.Cos(pitchRad) * Math.Cos(yawRad));
+                float fwdY = (float)(Math.Cos(pitchRad) * Math.Sin(yawRad));
+                float fwdZ = (float)(-Math.Sin(pitchRad));
+
+                float eyeZ = p.PlayerPawn.Value.AbsOrigin.Z + 64f; 
+
+                Vector pos = new Vector(
+                    p.PlayerPawn.Value.AbsOrigin.X + fwdX * 200f,
+                    p.PlayerPawn.Value.AbsOrigin.Y + fwdY * 200f,
+                    eyeZ + fwdZ * 200f
+                );
+
+                wp.Teleport(pos, new QAngle(pitch, yaw - 180f, 0), new Vector(0, 0, 0));
+            }
+        }
+    }
     private string GetMapName(string mapId) => _availableMaps.FirstOrDefault(m => m.Id == mapId)?.Name ?? "Unknown";
 
     private void PrintVoteProgress()
