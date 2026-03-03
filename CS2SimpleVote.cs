@@ -49,6 +49,11 @@ public class MapItem
 // --- Main Plugin ---
 public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 {
+
+    // Floating HUD state
+    private Dictionary<int, int> _playerActiveCount = new();
+    private Dictionary<int, int> _playerCurrentIndex = new();
+
     public override string ModuleName => "CS2SimpleVote";
     public override string ModuleVersion => "1.1.2";
 
@@ -1476,6 +1481,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         { "{ColorOrange}", System.Drawing.Color.Orange }
     };
 
+    
     private void CreateFloatingHUDMessages(CCSPlayerController player, string message)
     {
         message = message.Trim();
@@ -1498,9 +1504,30 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         float upY = fwdZ * rightX - fwdX * rightZ;
         float upZ = fwdX * rightY - fwdY * rightX;
 
+        // --- CASCADING LOGIC ---
+        if (!_playerActiveCount.ContainsKey(player.Slot)) _playerActiveCount[player.Slot] = 0;
+        if (!_playerCurrentIndex.ContainsKey(player.Slot)) _playerCurrentIndex[player.Slot] = 0;
+
+        if (_playerActiveCount[player.Slot] == 0)
+        {
+            _playerCurrentIndex[player.Slot] = 0;
+        }
+        else
+        {
+            _playerCurrentIndex[player.Slot] = (_playerCurrentIndex[player.Slot] + 1) % 10; // max 10 lines
+        }
+
+        int lineIndex = _playerCurrentIndex[player.Slot];
+        _playerActiveCount[player.Slot]++;
+
         float fwdDist = 120.0f;
         float rightDistOffset = 20.0f; // Shift to the right
-        float upDist = 5.0f;
+        
+        float baseUpDist = 12.0f; // "Shift it up"
+        float lineSpacing = 3.5f; 
+        float upDist = baseUpDist - (lineIndex * lineSpacing); // "Cascading, latest messages at the bottom"
+        // -----------------------
+
         float lastWidth = 0.0f;
 
         List<CPointWorldText> entities = new();
@@ -1531,7 +1558,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             wp.DrawBackground = true;
             wp.BackgroundBorderWidth = 0.2f;
             wp.BackgroundBorderHeight = 0.2f;
-                        
+
             Vector origin = new Vector(
                 player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * rightDist + upX * upDist,
                 player.PlayerPawn.Value.AbsOrigin.Y + player.PlayerPawn.Value.ViewOffset.Y + fwdY * fwdDist + rightY * rightDist + upY * upDist,
@@ -1568,8 +1595,13 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             AddTimer(2.0f, () => 
             {
                 foreach (var en in entities) { if (en != null && en.IsValid) en.Remove(); }
+                
+                // Decrement the active stack queue safely
+                if (_playerActiveCount.ContainsKey(player.Slot))
+                {
+                    _playerActiveCount[player.Slot] = System.Math.Max(0, _playerActiveCount[player.Slot] - 1);
+                }
             });
         });
     }
-
 }
