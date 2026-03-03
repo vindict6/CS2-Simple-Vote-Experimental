@@ -1422,7 +1422,12 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                     wp.MessageText = "";
                     wp.Enabled = true;
                     wp.FontSize = 20; 
+                    wp.Fullbright = true;
+                    wp.WorldUnitsPerPx = 0.25f;
                     wp.Color = System.Drawing.Color.White; 
+                    wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
+                    wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
+                    wp.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
                     
                     wp.DispatchSpawn();
                     
@@ -1445,22 +1450,24 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             {
                 var pitch = p.PlayerPawn.Value.EyeAngles.X;
                 var yaw = p.PlayerPawn.Value.EyeAngles.Y;
-                float pitchRad = pitch * MathF.PI / 180f;
-                float yawRad = yaw * MathF.PI / 180f;
 
-                float fwdX = (float)(Math.Cos(pitchRad) * Math.Cos(yawRad));
-                float fwdY = (float)(Math.Cos(pitchRad) * Math.Sin(yawRad));
-                float fwdZ = (float)(-Math.Sin(pitchRad));
+                (float sy, float cy) = MathF.SinCos(yaw * MathF.PI / 180.0f);
+                (float sp, float cp) = MathF.SinCos(pitch * MathF.PI / 180.0f);
 
-                float eyeZ = p.PlayerPawn.Value.AbsOrigin.Z + 64f; 
+                float fwdX = cp * cy;
+                float fwdY = cp * sy;
+                float fwdZ = -sp;
+
+                float viewOffsetZ = p.PlayerPawn.Value.ViewOffset != null ? p.PlayerPawn.Value.ViewOffset.Z : 64f;
 
                 Vector pos = new Vector(
                     p.PlayerPawn.Value.AbsOrigin.X + fwdX * 100f,
                     p.PlayerPawn.Value.AbsOrigin.Y + fwdY * 100f,
-                    eyeZ + fwdZ * 100f
+                    p.PlayerPawn.Value.AbsOrigin.Z + viewOffsetZ + fwdZ * 100f
                 );
 
-                wp.Teleport(pos, new QAngle(pitch, yaw - 180f, 0), new Vector(0, 0, 0));
+                // CS2-GameHUD sets Y = yaw + 270, Z = 90 - pitch, X = 0 (default struct)
+                wp.Teleport(pos, new QAngle(0, yaw + 270f, 90f - pitch), new Vector(0, 0, 0));
             }
         }
     }
