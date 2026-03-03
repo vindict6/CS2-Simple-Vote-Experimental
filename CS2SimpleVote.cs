@@ -1421,11 +1421,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 {
                     wp.MessageText = "";
                     wp.Enabled = true;
-                    wp.FontSize = 24; 
+                    wp.FontSize = 50; 
                     wp.FontName = "Arial Bold";
                     wp.Fullbright = true;
-                    wp.WorldUnitsPerPx = 0.03f;
-                    wp.Color = System.Drawing.Color.Aqua;
+                    wp.WorldUnitsPerPx = 0.15f;
+                    wp.Color = System.Drawing.Color.LimeGreen;
 
                     wp.DrawBackground = true;
                     wp.BackgroundBorderHeight = 0.3f;
