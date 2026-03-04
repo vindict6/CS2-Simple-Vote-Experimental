@@ -53,6 +53,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     public override string ModuleVersion => "1.1.2";
 
     private const string ColorDefault = "\x01";
+    private const string ColorRed = "\x02";
     private const string ColorGreen = "\x04";
 
     // --- Floating Text Dependencies ---
@@ -774,7 +775,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         foreach (var p in Utilities.GetPlayers())
         {
-            if (IsValidPlayer(p) && AdminManager.PlayerHasPermissions(p, "@css/generic"))
+            if (IsValidPlayer(p) && Config.Admins.Contains(p.SteamID))
             {
                 p.PrintToChat(msg);
             }
