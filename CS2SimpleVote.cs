@@ -941,9 +941,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
           }
 
           sb.Append("<div style='text-align: left;'>");
-          string titleText = $"--- NOMINATE MAP ---";
-          sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
-          sb.Append($"<font color='#ffffff'>Type 9 for next, 0 for prev. Type a number to select (or 'cancel').</font><br>");
+          string titleText = "--- NOMINATE MAP ---";
+          sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText} (9=Next, 0=Prev, 'cancel'=Exit)</font><font class='fontSize-sm stratum-font'><br>");
 
           for (int i = startIndex; i < endIndex; i++) { 
               int displayNum = (i - startIndex) + 1; 
@@ -1072,7 +1071,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (!_forcemapPlayers.TryGetValue(player.Slot, out var maps)) return;
         int offset = _playerForcemapPage.GetValueOrDefault(player.Slot, 0);
 
-        int perPage = 8;
+        int perPage = 6;
         int startIndex = offset;
         int endIndex = Math.Min(startIndex + perPage, maps.Count);
         
@@ -1085,9 +1084,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
 
         sb.Append("<div style='text-align: left;'>");
-        string titleText = $"--- FORCEMAP ---";
-        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
-        sb.Append($"<font color='#ffffff'>Type 9 for next, 0 for prev. Type a number to select (or 'cancel').</font><br>");
+        string titleText = "--- FORCEMAP ---";
+        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText} (9=Next, 0=Prev, 'cancel'=Exit)</font><font class='fontSize-sm stratum-font'><br>");
 
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
@@ -1184,7 +1182,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (!_setnextmapPlayers.TryGetValue(player.Slot, out var maps)) return;
         int offset = _playerSetNextMapPage.GetValueOrDefault(player.Slot, 0);
 
-        int perPage = 8;
+        int perPage = 6;
         int startIndex = offset;
         int endIndex = Math.Min(startIndex + perPage, maps.Count);
         
@@ -1197,9 +1195,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
 
         sb.Append("<div style='text-align: left;'>");
-        string titleText = $"--- SETNEXTMAP ---";
-        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
-        sb.Append($"<font color='#ffffff'>Type 9 for next, 0 for prev. Type a number to select (or 'cancel').</font><br>");
+        string titleText = "--- SETNEXTMAP ---";
+        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText} (9=Next, 0=Prev, 'cancel'=Exit)</font><font class='fontSize-sm stratum-font'><br>");
 
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
@@ -1540,11 +1537,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
 
         sb.Append("<div style='text-align: left;'>");
-        string titleText = "--- Type a number in chat to vote ---";
+        string titleText = "--- VOTE MAP ---";
         if (_voteInProgress && _forceVoteTimeRemaining > 0)
         {
             int displayTime = Math.Max(0, _forceVoteTimeRemaining);
-            titleText = $"--- Type a number in chat to vote ({displayTime}s) ---";
+            titleText = $"--- VOTE MAP ({displayTime}s) ---";
         }
 
         sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
