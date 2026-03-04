@@ -97,7 +97,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
             int steps = 30; // Smoother animation
             float duration = 1.0f; // Slower out
-            float startOffset = _hudRightDist.GetValueOrDefault(wp.Index, -35.0f);
+            float startOffset = _hudRightDist.GetValueOrDefault(wp.Index, -40.0f);
             float endOffset = startOffset - 185.0f; // Slide rightwards offscreen
             float upDist = _hudUpDist.GetValueOrDefault(wp.Index, 6.0f);
 
@@ -166,7 +166,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         int steps = 30; // Smoother animation
         float duration = 1.0f; // Slower in
-        float endOffset = _hudRightDist.GetValueOrDefault(wp.Index, -35.0f);
+        float endOffset = _hudRightDist.GetValueOrDefault(wp.Index, -40.0f);
         float startOffset = endOffset - 185.0f;
         float upDist = _hudUpDist.GetValueOrDefault(wp.Index, 6.0f);
 
@@ -259,7 +259,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         // Reverted to original distance and sizes for crisp font resolution
         float fwdDist = 110.0f;
-        float rightDistOffset = -35.0f; // More negative moves it further right
+        float rightDistOffset = -40.0f; // Smidge further right
         float baseUpDist = 50.0f;
         float lineSpacing = 4.0f;
         float upDist = baseUpDist - (lineIndex * lineSpacing);
@@ -276,7 +276,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         wp.FontName = "Arial Bold"; // Changed to a bold font
         wp.Fullbright = true;
         wp.WorldUnitsPerPx = 0.25f;
-        wp.Color = System.Drawing.Color.FromArgb(255, 64, 160, 255); // Nice bright blue
+        wp.Color = System.Drawing.Color.FromArgb(255, 144, 238, 144); // Light Green
         // Try to set background color to make it darker/more opaque
         try { wp.GetType().GetProperty("BackgroundColor")?.SetValue(wp, System.Drawing.Color.FromArgb(255, 0, 0, 0)); } catch {}
         wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
@@ -877,7 +877,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         
         var debugInfo = new List<string>
         {
-            $" {ColorDefault}--- {ColorGreen}Vote Debug Info {ColorDefault}---",
+            $" {ColorGreen}Vote Debug Info {ColorDefault}",
             $" {ColorDefault}Plugin Status: {ColorGreen}Active",
             $" {ColorDefault}Maps Loaded: {loadedStatus} ({_availableMaps.Count} maps)",
             $" {ColorDefault}Steam API Status: {apiStatus}",
@@ -892,7 +892,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (_activeVoteOptions.Count > 0)
         {
-            debugInfo.Add($" {ColorDefault}--- {ColorGreen}Active Vote Data {ColorDefault}---");
+            debugInfo.Add($" {ColorGreen}Active Vote Data {ColorDefault}");
             foreach (var kvp in _activeVoteOptions)
             {
                 int votes = _playerVotes.Values.Count(v => v == kvp.Key);
@@ -969,7 +969,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             .Where(a => a != null)
             .ToList();
 
-        p.PrintToChat($" {ColorDefault}---{ColorGreen} CS2SimpleVote Commands {ColorDefault}---");
+        p.PrintToChat($" {ColorGreen}CS2SimpleVote Commands {ColorDefault}");
 
         if (isAdmin)
         {
@@ -987,7 +987,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (!IsValidPlayer(player)) return;
         if (_nominatedMaps.Count == 0) { player!.PrintToChat($" {ColorDefault}No maps currently nominated."); return; }
 
-        player!.PrintToChat($" {ColorDefault}--- {ColorGreen}Nominated Maps ({_nominatedMaps.Count}/{Config.VoteOptionsCount}) {ColorDefault}---");
+        player!.PrintToChat($" {ColorGreen}Nominated Maps ({_nominatedMaps.Count}/{Config.VoteOptionsCount}) {ColorDefault}");
         foreach (var map in _nominatedMaps)
         {
             var owner = _nominationOwner.FirstOrDefault(x => x.Value.Id == map.Id);
@@ -1047,11 +1047,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
         
         string titleText = $"Last {maxDisplayCount} Recent Maps";
-        string dashes = new string('-', titleText.Length);
         
-        p.PrintToChat($" {ColorDefault}{dashes}");
         p.PrintToChat($" {ColorGreen}{titleText}");
-        p.PrintToChat($" {ColorDefault}{dashes}");
         
         var recentNames = _recentMapIds
             .Select(id => GetMapName(id))
@@ -1407,12 +1404,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _pendingMapId = selectedMap.Id;
         _nextMapName = selectedMap.Name;
         
-        string rawMsg = $"{player.PlayerName} has set the next map to {selectedMap.Name}.";
-        string dashes = new string('-', rawMsg.Length);
-
-        Server.PrintToChatAll($" {ColorDefault}{dashes}");
         Server.PrintToChatAll($" {ColorGreen}{player.PlayerName} {ColorDefault}has set the next map to {ColorGreen}{selectedMap.Name}{ColorDefault}.");
-        Server.PrintToChatAll($" {ColorDefault}{dashes}");
     }
 
     private void CloseSetNextMapMenu(CCSPlayerController player) { 
@@ -1548,11 +1540,10 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
 
         for (int i = 0; i < mapsToVote.Count; i++) _activeVoteOptions[i + 1] = mapsToVote[i].Id;
-        Server.PrintToChatAll($" {ColorDefault}--- {ColorGreen}Vote for the Next Map! {ColorDefault}---");
+        Server.PrintToChatAll($" {ColorGreen}Vote for the Next Map! {ColorDefault}");
 
         if (isRtv)
         {
-            Server.PrintToChatAll($" {ColorDefault}Vote ending in 30 seconds!");
             AddTimer(30.0f, () => EndVote());
         }
         else if (isForceVote && _previousWinningMapId != null) // Scenario: Vote already happened
@@ -1561,7 +1552,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
              // Chat message handled by center timer updates or initial print? 
              // Request says center message: "VOTE NOW! Time Remaining: 30s"
              // Typically we should also print to chat.
-             Server.PrintToChatAll($" {ColorDefault}Vote ending in 30 seconds!");
              AddTimer(30.0f, () => EndVote());
         }
         else
@@ -1666,12 +1656,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _previousWinningMapId = null;
         _previousWinningMapName = null;
 
-        string rawMsg = $"Winner: {_nextMapName}" + (voteCount > 0 ? $" with {voteCount} votes!" : " (Random/Previous)");
-        string dashes = new string('-', rawMsg.Length);
-
-        Server.PrintToChatAll($" {ColorDefault}{dashes}");
         Server.PrintToChatAll($" {ColorDefault}Winner: {ColorGreen}{_nextMapName}{ColorDefault}" + (voteCount > 0 ? $" with {ColorGreen}{voteCount}{ColorDefault} votes!" : " (Random/Previous)"));
-        Server.PrintToChatAll($" {ColorDefault}{dashes}");
         
         if (voteCount > 0 && Config.ShowMidVoteProgress)
         {
@@ -1730,7 +1715,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             .OrderByDescending(x => x.Count)
             .ToList();
 
-        Server.PrintToChatAll($" {ColorDefault}--- {ColorGreen}Vote Results {ColorDefault}---");
+        Server.PrintToChatAll($" {ColorGreen}Vote Results {ColorDefault}");
         foreach (var vote in voteCounts)
         {
             if (_activeVoteOptions.TryGetValue(vote.OptionId, out string? mapId))
