@@ -274,9 +274,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
         wp.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
         wp.DrawBackground = true;
-        wp.BackgroundBorderWidth = 0.2f;
-        wp.BackgroundBorderHeight = 0.2f;
-        wp.BackgroundColor = System.Drawing.Color.Transparent;
+        wp.BackgroundBorderWidth = 5.0f;
+        wp.BackgroundBorderHeight = 2.0f;
+        wp.BackgroundColor = System.Drawing.Color.FromArgb(100, 0, 0, 0);
 
         Vector origin = new Vector(
             player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * rightDistOffset + upX * upDist,
