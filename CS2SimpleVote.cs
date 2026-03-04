@@ -273,18 +273,18 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         wp.Enabled = true;
         wp.MessageText = "";
         wp.FontSize = 16;
-        wp.FontName = "Stratum2";
+        wp.FontName = "Arial Bold"; // Changed to a bold font
         wp.Fullbright = true;
         wp.WorldUnitsPerPx = 0.25f;
-        wp.Color = System.Drawing.Color.FromArgb(255, 128, 64);
+        wp.Color = System.Drawing.Color.FromArgb(255, 64, 160, 255); // Nice bright blue
         // Try to set background color to make it darker/more opaque
         try { wp.GetType().GetProperty("BackgroundColor")?.SetValue(wp, System.Drawing.Color.FromArgb(255, 0, 0, 0)); } catch {}
         wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
         wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
         wp.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
         wp.DrawBackground = true;
-        wp.BackgroundBorderWidth = 8.0f;
-        wp.BackgroundBorderHeight = 4.0f;
+        wp.BackgroundBorderWidth = 5.0f;
+        wp.BackgroundBorderHeight = 2.0f;
 
         Vector origin = new Vector(
             player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * rightDistOffset + upX * upDist,
@@ -759,6 +759,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     [ConsoleCommand("forcevote", "Force start map vote (Admin only)")]
     public void OnForceVoteCommand(CCSPlayerController? player, CommandInfo command) => AttemptForceVote(player);
+    [ConsoleCommand("endvote", "End an active map vote immediately (Admin only)")]
+    public void OnEndVoteCommand(CCSPlayerController? player, CommandInfo command) => AttemptEndVote(player);
     [ConsoleCommand("endwarmup", "End the warmup round (Admin only)")]
     public void OnEndWarmupCommand(CCSPlayerController? player, CommandInfo command) => AttemptEndWarmup(player);
 
@@ -809,6 +811,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (cmd.Equals("nominatelist", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintNominationList(p)); return HookResult.Continue; }
         if (cmd.Equals("help", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintHelp(p)); return HookResult.Continue; }
         if (cmd.Equals("forcevote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptForceVote(p)); return HookResult.Continue; }
+        if (cmd.Equals("endvote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptEndVote(p)); return HookResult.Continue; }
         if (cmd.Equals("endwarmup", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptEndWarmup(p)); return HookResult.Continue; }        if (cmd.Equals("votedebug", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptVoteDebug(p)); return HookResult.Continue; }
         if (cmd.Equals("revote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptRevote(p)); return HookResult.Continue; }
         if (cmd.Equals("nextmap", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintNextMap(p)); return HookResult.Continue; }
@@ -1430,6 +1433,29 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         Server.ExecuteCommand("mp_warmup_end");
         Server.PrintToChatAll($" {ColorDefault} Admin {ColorGreen}{p.PlayerName}{ColorDefault} ended the warmup.");
+    }
+
+    // --- EndVote Logic ---
+    private void AttemptEndVote(CCSPlayerController? player)
+    {
+        LogRoutine(new { player }, null);
+        if (!IsValidPlayer(player)) return;
+        var p = player!;
+
+        if (!Config.Admins.Contains(p.SteamID))
+        {
+            p.PrintToChat($" {ColorDefault} You do not have permission to use this command.");
+            return;
+        }
+
+        if (!_voteInProgress)
+        {
+            p.PrintToChat($" {ColorDefault} There is no active vote to end.");
+            return;
+        }
+
+        Server.PrintToChatAll($" {ColorDefault} Admin {ColorGreen}{p.PlayerName}{ColorDefault} forced the vote to end early.");
+        EndVote();
     }
 
     // --- ForceVote Logic ---
