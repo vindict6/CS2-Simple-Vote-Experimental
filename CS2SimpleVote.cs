@@ -150,23 +150,30 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     private void MasterHudTick()
     {
-        if (_unloaded) return;
-
-        if (_voteInProgress && _forceVoteTimeRemaining > 0)
+        try 
         {
-            _forceVoteTimeRemaining--;
-        }
+            if (_unloaded) return;
 
-        foreach (var p in GetHumanPlayers())
-        {
-            if (_nominatingPlayers.ContainsKey(p.Slot)) { DisplayNominationMenu(p); continue; }
-            if (_forcemapPlayers.ContainsKey(p.Slot)) { DisplayForcemapMenu(p); continue; }
-            if (_setnextmapPlayers.ContainsKey(p.Slot)) { DisplaySetNextMapMenu(p); continue; }
-            if (_voteInProgress && !_playerVotes.ContainsKey(p.Slot))
+            if (_voteInProgress && _forceVoteTimeRemaining > 0)
             {
-                PrintVoteOptionsToPlayer(p);
-                continue;
+                _forceVoteTimeRemaining--;
             }
+
+            foreach (var p in GetHumanPlayers())
+            {
+                if (_nominatingPlayers.ContainsKey(p.Slot)) { DisplayNominationMenu(p); continue; }
+                if (_forcemapPlayers.ContainsKey(p.Slot)) { DisplayForcemapMenu(p); continue; }
+                if (_setnextmapPlayers.ContainsKey(p.Slot)) { DisplaySetNextMapMenu(p); continue; }
+                if (_voteInProgress && !_playerVotes.ContainsKey(p.Slot))
+                {
+                    PrintVoteOptionsToPlayer(p);
+                    continue;
+                }
+            }
+        } 
+        catch (Exception ex) 
+        {
+            Console.WriteLine($"[CS2SimpleVote] Exception in MasterHudTick: {ex.Message}");
         }
     }
 
@@ -282,6 +289,10 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private void OnMapStart(string mapName)
     {
         LogRoutine(new { mapName }, null);
+        
+        _masterHudTimer?.Kill();
+        _masterHudTimer = AddTimer(1.0f, MasterHudTick, TimerFlags.REPEAT);
+        
         ResetState();
         Server.ExecuteCommand("mp_endmatch_votenextmap 0");
 
@@ -925,7 +936,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
         if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font>");
         
-        player.PrintToCenterHtml(sb.ToString());
+        player.PrintToCenterHtml(sb.ToString(), 2);
     }
 
     private HookResult HandleNominationInput(CCSPlayerController player, string input)
@@ -1042,7 +1053,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
         if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font>");
         
-        player.PrintToCenterHtml(sb.ToString());
+        player.PrintToCenterHtml(sb.ToString(), 2);
     }
 
     private HookResult HandleForcemapInput(CCSPlayerController player, string input)
@@ -1127,7 +1138,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
         if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font>");
         
-        player.PrintToCenterHtml(sb.ToString());
+        player.PrintToCenterHtml(sb.ToString(), 2);
     }
 
     private HookResult HandleSetNextMapInput(CCSPlayerController player, string input)
@@ -1432,7 +1443,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             sb.Append($"<font color='#ffffff'>[{kvp.Key}]</font> <font color='#90ee90'>{GetMapName(kvp.Value)}</font><br>");
         }
 
-        player.PrintToCenterHtml(sb.ToString());
+        player.PrintToCenterHtml(sb.ToString(), 2);
     }
     private string GetMapName(string mapId) => _availableMaps.FirstOrDefault(m => m.Id == mapId)?.Name ?? "Unknown";
 
