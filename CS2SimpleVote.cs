@@ -152,7 +152,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     {
         if (_unloaded) return;
 
-        if (_voteInProgress && _isForceVote && _previousWinningMapId != null)
+        if (_voteInProgress && _forceVoteTimeRemaining > 0)
         {
             _forceVoteTimeRemaining--;
         }
@@ -1296,6 +1296,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (isRtv)
         {
+            _forceVoteTimeRemaining = 30;
             AddTimer(30.0f, () => EndVote());
         }
         else if (isForceVote && _previousWinningMapId != null) // Scenario: Vote already happened
@@ -1415,20 +1416,20 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private void PrintVoteOptionsToAll() { foreach (var p in GetHumanPlayers()) PrintVoteOptionsToPlayer(p); }
     private void PrintVoteOptionsToPlayer(CCSPlayerController player) { 
         var sb = new StringBuilder();
-        sb.Append($"<font color='#ffffff'>Type the</font> <font color='#90ee90'>number</font> <font color='#ffffff'>to vote:</font><br>");
-        foreach (var kvp in _activeVoteOptions) 
-        {
-            sb.Append($"<font color='#90ee90'>[{kvp.Key}]</font> <font color='#ffffff'>{GetMapName(kvp.Value)}</font><br>");
-        }
         
-        if (_voteInProgress && _isForceVote && _previousWinningMapId != null)
+        if (_voteInProgress && _forceVoteTimeRemaining > 0)
         {
             int displayTime = Math.Max(0, _forceVoteTimeRemaining);
-            sb.Append($"<br><font color='#ffffff'>VOTE NOW! Time Remaining: </font><font color='#90ee90'>{displayTime}s</font>");
+            sb.Append($"<font color='#ffffff'>--- </font><font color='#90ee90'>Type a number in chat to vote ({displayTime}s)</font><font color='#ffffff'> ---</font><br>");
         }
         else if (_voteInProgress)
         {
-            sb.Append($"<font color='#ffffff'>VOTE NOW!</font>");
+            sb.Append($"<font color='#ffffff'>--- </font><font color='#90ee90'>Type a number in chat to vote</font><font color='#ffffff'> ---</font><br>");
+        }
+
+        foreach (var kvp in _activeVoteOptions) 
+        {
+            sb.Append($"<font color='#ffffff'>[{kvp.Key}]</font> <font color='#90ee90'>{GetMapName(kvp.Value)}</font><br>");
         }
 
         player.PrintToCenterHtml(sb.ToString());
