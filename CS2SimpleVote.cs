@@ -277,7 +277,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         wp.BackgroundBorderWidth = 0.2f;
         wp.BackgroundBorderHeight = 0.2f;
         wp.BackgroundColor = System.Drawing.Color.Transparent;
-        wp.BackgroundBorderColor = System.Drawing.Color.FromArgb(255, 128, 64);
 
         Vector origin = new Vector(
             player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * rightDistOffset + upX * upDist,
