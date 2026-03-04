@@ -154,7 +154,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         float upZ = fwdX * rightY - fwdY * rightX;
 
         // --- CASCADING LOGIC ---
-         _playerActiveCount[player.Slot] = 0;
+        if (!_playerActiveCount.ContainsKey(player.Slot)) _playerActiveCount[player.Slot] = 0;
         if (!_playerCurrentIndex.ContainsKey(player.Slot)) _playerCurrentIndex[player.Slot] = 0;
 
         if (_playerActiveCount[player.Slot] == 0) _playerCurrentIndex[player.Slot] = 0;
@@ -163,21 +163,22 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         int lineIndex = _playerCurrentIndex[player.Slot];
         _playerActiveCount[player.Slot]++;
 
-        float fwdDist = 120.0f;
-        float rightDistOffset = 45.0f; 
-        float baseUpDist = 12.0f; 
-        float lineSpacing = 8.0f; 
-        float upDist = baseUpDist - (lineIndex * lineSpacing); 
+        // Bring it closer and scale proportionally so it appears the same size and is positioned right
+        float fwdDist = 50.0f; 
+        float rightDistOffset = 18.0f; 
+        float baseUpDist = 5.0f;
+        float lineSpacing = 3.5f;
+        float upDist = baseUpDist - (lineIndex * lineSpacing);
 
         var wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
         if (wp == null) return;
 
         wp.Enabled = true;
-        wp.MessageText = ""; 
-        wp.FontSize = 14;
+        wp.MessageText = "";
+        wp.FontSize = 7;
         wp.FontName = "Arial";
         wp.Fullbright = true;
-        wp.WorldUnitsPerPx = 0.25f; 
+        wp.WorldUnitsPerPx = 0.25f;
         wp.Color = System.Drawing.Color.Lime;
         wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
         wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
