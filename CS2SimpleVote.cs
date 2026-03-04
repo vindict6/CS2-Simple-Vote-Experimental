@@ -64,7 +64,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private readonly Dictionary<int, List<CPointWorldText>> _allPlayerTexts = new();
     private readonly Dictionary<uint, float> _hudUpDist = new();
     private readonly Dictionary<uint, float> _hudRightDist = new();
-    private readonly Dictionary<int, CPointOrient> _playerPointOrients = new();
     private readonly Dictionary<int, uint> _playerCurrentParent = new();
     private readonly Dictionary<uint, int> _hudEntityToPlayerSlot = new(); // Fast tracking for OnTransmit
     
@@ -119,7 +118,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             parentEntity = obs;
             origin = new Vector(obs.AbsOrigin?.X ?? 0, obs.AbsOrigin?.Y ?? 0, obs.AbsOrigin?.Z ?? 0);
             viewOffset = new Vector(obs.ViewOffset.X, obs.ViewOffset.Y, obs.ViewOffset.Z);
-            eyeAngles = new QAngle(obs.V_angle?.X ?? obs.AbsRotation?.X ?? 0, obs.V_angle?.Y ?? obs.AbsRotation?.Y ?? 0, obs.V_angle?.Z ?? obs.AbsRotation?.Z ?? 0);
+            
+            if (player.PlayerPawn.Value != null && player.PlayerPawn.Value.IsValid)
+            {
+                var pawn = player.PlayerPawn.Value;
+                eyeAngles = new QAngle(pawn.EyeAngles?.X ?? 0, pawn.EyeAngles?.Y ?? 0, pawn.EyeAngles?.Z ?? 0);
+            }
+            else
+            {
+                eyeAngles = new QAngle(obs.V_angle?.X ?? obs.AbsRotation?.X ?? 0, obs.V_angle?.Y ?? obs.AbsRotation?.Y ?? 0, obs.V_angle?.Z ?? obs.AbsRotation?.Z ?? 0);
+            }
             return true;
         }
 
@@ -140,123 +148,26 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     {
         if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
 
-        Action performSlideOut = () =>
+        Action performRemove = () =>
         {
-            if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
-
-            int steps = 30; // Smoother animation
-            float duration = 1.0f; // Slower out
-            float startOffset = _hudRightDist.GetValueOrDefault(wp.Index, -40.0f);
-            float endOffset = startOffset - 185.0f; // Slide rightwards offscreen
-            float upDist = _hudUpDist.GetValueOrDefault(wp.Index, 6.0f);
-
-            for (int i = 1; i <= steps; i++)
+            if (wp != null && wp.IsValid) 
             {
-                float progress = (float)i / steps;
-                float easedProgress = progress * progress; // Ease in
-
-                AddTimer(duration * progress, () => 
-                {
-                    if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
-                    if (!GetPlayerCamera(player, out var parentEnt, out var pawnAbsOrigin, out var pawnViewOffset, out var eyeAngles)) return;
-                    
-                    float currentOffset = startOffset + (endOffset - startOffset) * easedProgress;
-
-                    // Update position
-                    float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
-                    float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
-                    float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
-                    float fwdY = (float)(Math.Cos(pitch) * Math.Sin(yaw));
-                    float fwdZ = (float)(-Math.Sin(pitch));
-                    float rightX = (float)(-Math.Sin(yaw));
-                    float rightY = (float)(Math.Cos(yaw));
-                    float rightZ = 0.0f;
-                    float upX = fwdY * rightZ - fwdZ * rightY;
-                    float upY = fwdZ * rightX - fwdX * rightZ;
-                    float upZ = fwdX * rightY - fwdY * rightX;
-
-                    float fwdDist = 110.0f;
-
-                    Vector origin = new Vector(
-                        pawnAbsOrigin.X + pawnViewOffset.X + fwdX * fwdDist + rightX * currentOffset + upX * upDist,
-                        pawnAbsOrigin.Y + pawnViewOffset.Y + fwdY * fwdDist + rightY * currentOffset + upY * upDist,
-                        pawnAbsOrigin.Z + pawnViewOffset.Z + fwdZ * fwdDist + rightZ * currentOffset + upZ * upDist
-                    );
-
-                    QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
-                    wp.Teleport(origin, angle, new Vector(0,0,0));
-                });
+                _hudEntityToPlayerSlot.Remove(wp.Index);
+                wp.Remove();
             }
-
-            AddTimer(duration + 0.1f, () => 
+            if (player != null && player.IsValid && _playerActiveCount.ContainsKey(player.Slot))
             {
-                if (wp != null && wp.IsValid) 
-                {
-                    _hudEntityToPlayerSlot.Remove(wp.Index);
-                    wp.Remove();
-                }
-                if (_playerActiveCount.ContainsKey(player.Slot))
-                {
-                    _playerActiveCount[player.Slot] = System.Math.Max(0, _playerActiveCount[player.Slot] - 1);
-                }
-            });
+                _playerActiveCount[player.Slot] = System.Math.Max(0, _playerActiveCount[player.Slot] - 1);
+            }
         };
 
         if (initialDelay > 0.0f)
         {
-            AddTimer(initialDelay, performSlideOut);
+            AddTimer(initialDelay, performRemove);
         }
         else
         {
-            performSlideOut();
-        }
-    }
-
-    private void SlideInHUD(CPointWorldText wp, CCSPlayerController player)
-    {
-        if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
-
-        int steps = 30; // Smoother animation
-        float duration = 1.0f; // Slower in
-        float endOffset = _hudRightDist.GetValueOrDefault(wp.Index, -40.0f);
-        float startOffset = endOffset - 185.0f;
-        float upDist = _hudUpDist.GetValueOrDefault(wp.Index, 6.0f);
-
-        for (int i = 1; i <= steps; i++)
-        {
-            float progress = (float)i / steps;
-            float easedProgress = 1.0f - (float)Math.Pow(1.0f - progress, 3); // Ease out cubic
-
-            AddTimer(duration * progress, () => 
-            {
-                if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
-                if (!GetPlayerCamera(player, out var parentEnt, out var pawnAbsOrigin, out var pawnViewOffset, out var eyeAngles)) return;
-                
-                float currentOffset = startOffset + (endOffset - startOffset) * easedProgress;
-
-                float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
-                float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
-                float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
-                float fwdY = (float)(Math.Cos(pitch) * Math.Sin(yaw));
-                float fwdZ = (float)(-Math.Sin(pitch));
-                float rightX = (float)(-Math.Sin(yaw));
-                float rightY = (float)(Math.Cos(yaw));
-                float rightZ = 0.0f;
-                float upX = fwdY * rightZ - fwdZ * rightY;
-                float upY = fwdZ * rightX - fwdX * rightZ;
-                float upZ = fwdX * rightY - fwdY * rightX;
-
-                float fwdDist = 110.0f;
-
-                Vector origin = new Vector(
-                    pawnAbsOrigin.X + pawnViewOffset.X + fwdX * fwdDist + rightX * currentOffset + upX * upDist,
-                    pawnAbsOrigin.Y + pawnViewOffset.Y + fwdY * fwdDist + rightY * currentOffset + upY * upDist,
-                    pawnAbsOrigin.Z + pawnViewOffset.Z + fwdZ * fwdDist + rightZ * currentOffset + upZ * upDist
-                );
-
-                QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
-                wp.Teleport(origin, angle, new Vector(0,0,0));
-            });
+            performRemove();
         }
     }
 
@@ -268,44 +179,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (!GetPlayerCamera(player, out var parentEntity, out var pawnAbsOrigin, out var pawnViewOffset, out var eyeAngles)) return;
 
-        if (!_playerPointOrients.ContainsKey(player.Slot) || _playerPointOrients[player.Slot] == null || !_playerPointOrients[player.Slot].IsValid)
-        {
-            var orient = Utilities.CreateEntityByName<CPointOrient>("point_orient");
-            if (orient != null && orient.IsValid)
-            {
-                orient.Active = true;
-                orient.GoalDirection = PointOrientGoalDirectionType_t.eEyesForward;
-                orient.DispatchSpawn();
-                
-                Vector orientPos = new Vector(pawnAbsOrigin.X, pawnAbsOrigin.Y, pawnAbsOrigin.Z + pawnViewOffset.Z);
-                
-                orient.AcceptInput("SetParent", parentEntity, null, "!activator");
-                orient.AcceptInput("SetTarget", parentEntity, null, "!activator");
-                orient.Teleport(orientPos, eyeAngles, null);
-                
-                _playerPointOrients[player.Slot] = orient;
-                _hudEntityToPlayerSlot[orient.Index] = player.Slot;
-                _playerCurrentParent[player.Slot] = parentEntity.Index;
-            }
-        }
-        else
-        {
-            // Dynamically update the parent in case they switched spectate targets or died
-            var oldOrient = _playerPointOrients[player.Slot];
-            if (oldOrient != null && oldOrient.IsValid)
-            {
-                uint currentParentIndex = _playerCurrentParent.GetValueOrDefault(player.Slot, uint.MaxValue);
-                if (currentParentIndex != parentEntity.Index)
-                {
-                    oldOrient.AcceptInput("ClearParent");
-                    oldOrient.Teleport(new Vector(pawnAbsOrigin.X, pawnAbsOrigin.Y, pawnAbsOrigin.Z + pawnViewOffset.Z), eyeAngles, null);
-                    oldOrient.AcceptInput("SetParent", parentEntity, null, "!activator");
-                    oldOrient.AcceptInput("SetTarget", parentEntity, null, "!activator");
-                    _playerCurrentParent[player.Slot] = parentEntity.Index;
-                }
-            }
-        }
-        
         float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
         float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
         float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
@@ -353,19 +226,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         wp.BackgroundBorderWidth = 5.0f;
         wp.BackgroundBorderHeight = 2.0f;
 
-        // Spawn initially off-screen at the exact start position of SlideInHUD
-        float spawnRightDistOffset = rightDistOffset - 185.0f; 
-
         Vector origin = new Vector(
-            pawnAbsOrigin.X + pawnViewOffset.X + fwdX * fwdDist + rightX * spawnRightDistOffset + upX * upDist,
-            pawnAbsOrigin.Y + pawnViewOffset.Y + fwdY * fwdDist + rightY * spawnRightDistOffset + upY * upDist,
-            pawnAbsOrigin.Z + pawnViewOffset.Z + fwdZ * fwdDist + rightZ * spawnRightDistOffset + upZ * upDist
+            pawnAbsOrigin.X + pawnViewOffset.X + fwdX * fwdDist + rightX * rightDistOffset + upX * upDist,
+            pawnAbsOrigin.Y + pawnViewOffset.Y + fwdY * fwdDist + rightY * rightDistOffset + upY * upDist,
+            pawnAbsOrigin.Z + pawnViewOffset.Z + fwdZ * fwdDist + rightZ * rightDistOffset + upZ * upDist
         );
 
         QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
         wp.DispatchSpawn();
 
-        if (_playerPointOrients.ContainsKey(player.Slot) && _playerPointOrients[player.Slot] != null && _playerPointOrients[player.Slot].IsValid) { wp.AcceptInput("SetParent", _playerPointOrients[player.Slot], null, "!activator"); } else { wp.AcceptInput("SetParent", parentEntity, null, "!activator"); }
+        wp.AcceptInput("SetParent", parentEntity, null, "!activator");
         wp.Teleport(origin, angle, new Vector(0,0,0));
         wp.AcceptInput("SetMessage", wp, wp, message);
         
@@ -373,9 +243,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         
         if (!_allPlayerTexts.ContainsKey(player.Slot)) _allPlayerTexts[player.Slot] = new();
         _allPlayerTexts[player.Slot].Add(wp);
-
-        // Make it slide in from the right immediately after spawning
-        SlideInHUD(wp, player);
 
         if (isPersistent)
         {
@@ -429,13 +296,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     // State: SetNextMap
     private readonly Dictionary<int, List<MapItem>> _setnextmapPlayers = new();
     private readonly Dictionary<int, int> _playerSetNextMapPage = new();
-
-    // State: Poll
-    private CounterStrikeSharp.API.Modules.Timers.Timer? _pollTimer;
-    private int _pollYesVotes;
-    private int _pollNoVotes;
-    private bool _pollInProgress;
-    private readonly HashSet<int> _pollVoters = new();
 
     // Logger
     private readonly BlockingCollection<string> _logQueue = new();
@@ -498,7 +358,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         RegisterEventHandler<EventCsWinPanelMatch>(OnMatchEnd);
         RegisterEventHandler<EventPlayerDisconnect>(OnPlayerDisconnect);
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
-        RegisterEventHandler<EventVoteCast>(OnVoteCast);
 
         RegisterListener<Listeners.OnMapStart>(OnMapStart);
 
@@ -524,8 +383,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _mapInfoTimer = null;
         _centerMessageTimer?.Kill();
         _centerMessageTimer = null;
-        _pollTimer?.Kill();
-        _pollTimer = null;
 
         // Cleanup HUDs - remove entities from the world
         foreach (var kvp in _allPlayerTexts)
@@ -538,12 +395,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
         _allPlayerTexts.Clear();
         _playerPersistentHUDs.Clear();
-
-        foreach (var orient in _playerPointOrients.Values)
-        {
-            if (orient != null && orient.IsValid) orient.Remove();
-        }
-        _playerPointOrients.Clear();
 
         // Clear collections to release references
         _availableMaps.Clear();
@@ -561,8 +412,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _playerForcemapPage.Clear();
         _setnextmapPlayers.Clear();
         _playerSetNextMapPage.Clear();
-        _pollVoters.Clear();
-        _pollInProgress = false;
 
         // Remove listeners and handlers
         DeregisterEventHandler<EventRoundStart>(OnRoundStart);
@@ -570,7 +419,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         DeregisterEventHandler<EventCsWinPanelMatch>(OnMatchEnd);
         DeregisterEventHandler<EventPlayerDisconnect>(OnPlayerDisconnect);
         DeregisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
-        DeregisterEventHandler<EventVoteCast>(OnVoteCast);
 
         RemoveListener<Listeners.OnMapStart>(OnMapStart);
 
@@ -640,8 +488,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _playerForcemapPage.Clear();
         _setnextmapPlayers.Clear();
         _playerSetNextMapPage.Clear();
-        _pollVoters.Clear();
-        _pollInProgress = false;
 
         _reminderTimer?.Kill();
         _reminderTimer = null;
@@ -651,8 +497,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         _centerMessageTimer?.Kill();
         _centerMessageTimer = null;
-        _pollTimer?.Kill();
-        _pollTimer = null;
     }
 
     // --- File Persistence ---
@@ -856,14 +700,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         AttemptSetNextMap(player, searchTerm);
     }
 
-    [ConsoleCommand("poll", "Start a custom YES/NO poll (Admin only) (Usage: poll \"Question in quotes\")")]
-    public void OnPollCommand(CCSPlayerController? player, CommandInfo command)
-    {
-        LogRoutine(new { player, command }, null);
-        string argString = command.ArgString;
-        AttemptPoll(player, argString);
-    }
-
     [ConsoleCommand("forcevote", "Force start map vote (Admin only)")]
     public void OnForceVoteCommand(CCSPlayerController? player, CommandInfo command) => AttemptForceVote(player);
     [ConsoleCommand("endvote", "End an active map vote immediately (Admin only)")]
@@ -920,7 +756,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (cmd.Equals("forcevote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptForceVote(p)); return HookResult.Continue; }
         if (cmd.Equals("endvote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptEndVote(p)); return HookResult.Continue; }
         if (cmd.Equals("endwarmup", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptEndWarmup(p)); return HookResult.Continue; }        if (cmd.Equals("votedebug", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptVoteDebug(p)); return HookResult.Continue; }
-        if (cmd.Equals("revote", StringComparison.OrdinalIgnoreCase) || cmd.Equals("vote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptRevote(p)); return HookResult.Continue; }
+        if (cmd.Equals("revote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptRevote(p)); return HookResult.Continue; }
         if (cmd.Equals("nextmap", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintNextMap(p)); return HookResult.Continue; }
         if (cmd.Equals("lastmap", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintLastMap(p)); return HookResult.Continue; }
         if (cmd.Equals("recentmaps", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintRecentMaps(p, args)); return HookResult.Continue; }
@@ -940,12 +776,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (cmd.Equals("setnextmap", StringComparison.OrdinalIgnoreCase))
         {
             Server.NextFrame(() => AttemptSetNextMap(p, args));
-            return HookResult.Continue;
-        }
-
-        if (cmd.Equals("poll", StringComparison.OrdinalIgnoreCase))
-        {
-            Server.NextFrame(() => AttemptPoll(p, args));
             return HookResult.Continue;
         }
 
@@ -1517,126 +1347,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         ClearPlayerHUDMessages(player);
     }
 
-    // --- Poll Logic ---
-    private void AttemptPoll(CCSPlayerController? p, string? args)
-    {
-        LogRoutine(new { player = p?.PlayerName, args }, null);
-        if (p != null && !IsValidPlayer(p)) return;
-        
-        if (p != null && !Config.Admins.Contains(p.SteamID))
-        {
-            p.PrintToChat($" {ColorDefault}You do not have permission to use this command.");
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(args))
-        {
-            p?.PrintToChat($" {ColorDefault}Usage: poll \"Your question here\"");
-            return;
-        }
-
-        string cleanArg = args.Trim();
-        if (cleanArg.StartsWith("\"") && cleanArg.EndsWith("\"") && cleanArg.Length > 2)
-        {
-            cleanArg = cleanArg.Substring(1, cleanArg.Length - 2);
-        }
-
-        if (_pollInProgress)
-        {
-            p?.PrintToChat($" {ColorDefault}A poll is already in progress.");
-            return;
-        }
-
-        StartPoll(cleanArg);
-    }
-
-    private void StartPoll(string question)
-    {
-        LogRoutine(new { question }, null);
-        _pollInProgress = true;
-        _pollYesVotes = 0;
-        _pollNoVotes = 0;
-        _pollVoters.Clear();
-
-        var voteController = Utilities.FindAllEntitiesByDesignerName<CVoteController>("vote_controller").FirstOrDefault();
-        if (voteController != null)
-        {
-            for (int i = 0; i < 5; i++) voteController.VoteOptionCount[i] = 0;
-            voteController.PotentialVotes = GetHumanPlayers().Count();
-            voteController.ActiveIssueIndex = 2; 
-        }
-
-        foreach (var player in GetHumanPlayers())
-        {
-            UserMessage um = UserMessage.FromPartialName("VoteStart");
-            um.SetInt("team", -1);
-            um.SetInt("player_slot", 99);
-            um.SetInt("vote_type", -1);
-            um.SetString("disp_str", "#SFUI_vote_passed_nextlevel_extend"); // Standard token allowing custom text
-            um.SetString("details_str", question);
-            um.SetString("other_team_str", "");
-            um.SetBool("is_yes_no_vote", true);
-            um.Send(player);
-        }
-
-        Server.PrintToChatAll($" {ColorDefault}A poll has started: {ColorGreen}{question}");
-
-        _pollTimer = AddTimer(20.0f, () => {
-            EndPoll();
-        });
-    }
-
-    private void EndPoll()
-    {
-        if (!_pollInProgress) return;
-        _pollInProgress = false;
-        _pollTimer?.Kill();
-        _pollTimer = null;
-
-        LogRoutine(new { _pollYesVotes, _pollNoVotes }, null);
-
-        bool passed = _pollYesVotes > _pollNoVotes;
-        
-        foreach (var player in GetHumanPlayers())
-        {
-            UserMessage um = UserMessage.FromPartialName(passed ? "VotePass" : "VoteFailed");
-            um.SetInt("team", -1);
-            um.SetInt("vote_type", -1);
-            um.SetString("disp_str", passed ? "#SFUI_vote_passed" : "#SFUI_vote_failed");
-            um.SetString("details_str", "");
-            um.Send(player);
-        }
-
-        var voteController = Utilities.FindAllEntitiesByDesignerName<CVoteController>("vote_controller").FirstOrDefault();
-        if (voteController != null) voteController.ActiveIssueIndex = 0;
-    }
-
-    private HookResult OnVoteCast(EventVoteCast @event, GameEventInfo info)
-    {
-        if (!_pollInProgress) return HookResult.Continue;
-        
-        try 
-        {
-            if (@event.VoteOption == 1) _pollYesVotes++;
-            else if (@event.VoteOption == 2) _pollNoVotes++;
-            
-            var e = new EventVoteChanged(true) {
-                VoteOption1 = (byte)_pollYesVotes,
-                VoteOption2 = (byte)_pollNoVotes,
-                Potentialvotes = (byte)GetHumanPlayers().Count()
-            };
-            e.FireEvent(false);
-
-            if (_pollYesVotes + _pollNoVotes >= GetHumanPlayers().Count())
-            {
-                Server.NextFrame(() => EndPoll());
-            }
-        }
-        catch { }
-
-        return HookResult.Continue;
-    }
-
     // --- EndWarmup Logic ---
     private void AttemptEndWarmup(CCSPlayerController? player)
     {
@@ -1812,18 +1522,48 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                     p.PrintToCenter("VOTE NOW!"); 
                 }
                 
-                // Track state changes (dead/spectate) to keep HUD visible smoothly without resending full animation
+                // Track state changes (dead/spectate) to keep HUD visible smoothly
                 if (GetPlayerCamera(p, out var parentEntity, out var pawnAbsOrigin, out var pawnViewOffset, out var eyeAngles))
                 {
-                    if (_playerPointOrients.TryGetValue(p.Slot, out var orient) && orient != null && orient.IsValid)
+                    if (_allPlayerTexts.TryGetValue(p.Slot, out var wps))
                     {
                         uint currentParentIndex = _playerCurrentParent.GetValueOrDefault(p.Slot, uint.MaxValue);
                         if (currentParentIndex != parentEntity.Index)
                         {
-                            orient.AcceptInput("ClearParent");
-                            orient.Teleport(new Vector(pawnAbsOrigin.X, pawnAbsOrigin.Y, pawnAbsOrigin.Z + pawnViewOffset.Z), eyeAngles, null);
-                            orient.AcceptInput("SetParent", parentEntity, null, "!activator");
-                            orient.AcceptInput("SetTarget", parentEntity, null, "!activator");
+                            foreach (var wp in wps)
+                            {
+                                if (wp != null && wp.IsValid)
+                                {
+                                    wp.AcceptInput("ClearParent");
+                                    
+                                    // Recalculate relative position briefly to snap
+                                    float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
+                                    float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
+                                    float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
+                                    float fwdY = (float)(Math.Cos(pitch) * Math.Sin(yaw));
+                                    float fwdZ = (float)(-Math.Sin(pitch));
+                                    float rightX = (float)(-Math.Sin(yaw));
+                                    float rightY = (float)(Math.Cos(yaw));
+                                    float rightZ = 0.0f;
+                                    float upX = fwdY * rightZ - fwdZ * rightY;
+                                    float upY = fwdZ * rightX - fwdX * rightZ;
+                                    float upZ = fwdX * rightY - fwdY * rightX;
+
+                                    float fwdDist = 110.0f;
+                                    float rightDistOffset = _hudRightDist.GetValueOrDefault(wp.Index, -40.0f);
+                                    float upDist = _hudUpDist.GetValueOrDefault(wp.Index, 50.0f);
+
+                                    Vector snapOrigin = new Vector(
+                                        pawnAbsOrigin.X + pawnViewOffset.X + fwdX * fwdDist + rightX * rightDistOffset + upX * upDist,
+                                        pawnAbsOrigin.Y + pawnViewOffset.Y + fwdY * fwdDist + rightY * rightDistOffset + upY * upDist,
+                                        pawnAbsOrigin.Z + pawnViewOffset.Z + fwdZ * fwdDist + rightZ * rightDistOffset + upZ * upDist
+                                    );
+                                    QAngle snapAngle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
+                                    
+                                    wp.Teleport(snapOrigin, snapAngle, new Vector(0,0,0));
+                                    wp.AcceptInput("SetParent", parentEntity, null, "!activator");
+                                }
+                            }
                             _playerCurrentParent[p.Slot] = parentEntity.Index;
                         }
                     }
@@ -2066,12 +1806,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             CloseForcemapMenu(player); 
             CloseSetNextMapMenu(player);
             
-            if (_playerPointOrients.TryGetValue(player.Slot, out var orient))
-            {
-                if (orient != null && orient.IsValid) orient.Remove();
-                _playerPointOrients.Remove(player.Slot);
-                _playerCurrentParent.Remove(player.Slot);
-            }
+            _playerCurrentParent.Remove(player.Slot);
         } 
         return HookResult.Continue; 
     }
