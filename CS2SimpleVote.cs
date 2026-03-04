@@ -84,35 +84,129 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     
 
-    private void FadeAndRemoveHUD(CPointWorldText wp, int playerSlot)
+    private void SlideOutAndRemoveHUD(CPointWorldText wp, CCSPlayerController player, float initialDelay = 0.0f)
     {
-        AddTimer(5.0f, () => 
+        if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
+
+        Action performSlideOut = () =>
         {
-            for (float f = 1.0f; f <= 5.0f; f++)
+            if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
+
+            int steps = 15;
+            float duration = 0.5f;
+            float startOffset = -35.0f;
+            float endOffset = -220.0f;
+
+            for (int i = 1; i <= steps; i++)
             {
-                float fadeStep = f;
-                AddTimer(f * (2.0f / 5.0f), () => 
+                float progress = (float)i / steps;
+                float easedProgress = progress * progress; // Ease in
+
+                AddTimer(duration * progress, () => 
                 {
-                    if (wp != null && wp.IsValid)
-                    {
-                        wp.Color = System.Drawing.Color.FromArgb((int)(255 * (1.0f - fadeStep / 5.0f)), wp.Color.R, wp.Color.G, wp.Color.B);
-                        wp.AcceptInput("SetMessage", wp, wp, wp.MessageText);
-                    }
+                    if (wp == null || !wp.IsValid || player == null || !player.IsValid || player.PlayerPawn.Value == null) return;
+                    
+                    float currentOffset = startOffset + (endOffset - startOffset) * easedProgress;
+
+                    // Update position
+                    var pawn = player.PlayerPawn.Value;
+                    var eyeAngles = pawn.EyeAngles;
+                    float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
+                    float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
+                    float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
+                    float fwdY = (float)(Math.Cos(pitch) * Math.Sin(yaw));
+                    float fwdZ = (float)(-Math.Sin(pitch));
+                    float rightX = (float)(-Math.Sin(yaw));
+                    float rightY = (float)(Math.Cos(yaw));
+                    float rightZ = 0.0f;
+                    float upX = fwdY * rightZ - fwdZ * rightY;
+                    float upY = fwdZ * rightX - fwdX * rightZ;
+                    float upZ = fwdX * rightY - fwdY * rightX;
+
+                    float fwdDist = 110.0f;
+                    float upDist = 6.0f;
+
+                    Vector origin = new Vector(
+                        pawn.AbsOrigin.X + pawn.ViewOffset.X + fwdX * fwdDist + rightX * currentOffset + upX * upDist,
+                        pawn.AbsOrigin.Y + pawn.ViewOffset.Y + fwdY * fwdDist + rightY * currentOffset + upY * upDist,
+                        pawn.AbsOrigin.Z + pawn.ViewOffset.Z + fwdZ * fwdDist + rightZ * currentOffset + upZ * upDist
+                    );
+
+                    QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
+                    wp.Teleport(origin, angle, new Vector(0,0,0));
                 });
             }
-            AddTimer(2.0f, () => 
+
+            AddTimer(duration + 0.1f, () => 
             {
                 if (wp != null && wp.IsValid) wp.Remove();
-                
-                if (_playerActiveCount.ContainsKey(playerSlot))
+                if (_playerActiveCount.ContainsKey(player.Slot))
                 {
-                    _playerActiveCount[playerSlot] = System.Math.Max(0, _playerActiveCount[playerSlot] - 1);
+                    _playerActiveCount[player.Slot] = System.Math.Max(0, _playerActiveCount[player.Slot] - 1);
                 }
             });
-        });
+        };
+
+        if (initialDelay > 0.0f)
+        {
+            AddTimer(initialDelay, performSlideOut);
+        }
+        else
+        {
+            performSlideOut();
+        }
     }
 
-    private void CreateFloatingHUDMessages(CCSPlayerController player, string message, bool isPersistent = false)
+    private void SlideInHUD(CPointWorldText wp, CCSPlayerController player)
+    {
+        if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
+
+        int steps = 15;
+        float duration = 0.5f;
+        float startOffset = -220.0f;
+        float endOffset = -35.0f;
+
+        for (int i = 1; i <= steps; i++)
+        {
+            float progress = (float)i / steps;
+            float easedProgress = 1.0f - (float)Math.Pow(1.0f - progress, 3); // Ease out cubic
+
+            AddTimer(duration * progress, () => 
+            {
+                if (wp == null || !wp.IsValid || player == null || !player.IsValid || player.PlayerPawn.Value == null) return;
+                
+                float currentOffset = startOffset + (endOffset - startOffset) * easedProgress;
+
+                var pawn = player.PlayerPawn.Value;
+                var eyeAngles = pawn.EyeAngles;
+                float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
+                float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
+                float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
+                float fwdY = (float)(Math.Cos(pitch) * Math.Sin(yaw));
+                float fwdZ = (float)(-Math.Sin(pitch));
+                float rightX = (float)(-Math.Sin(yaw));
+                float rightY = (float)(Math.Cos(yaw));
+                float rightZ = 0.0f;
+                float upX = fwdY * rightZ - fwdZ * rightY;
+                float upY = fwdZ * rightX - fwdX * rightZ;
+                float upZ = fwdX * rightY - fwdY * rightX;
+
+                float fwdDist = 110.0f;
+                float upDist = 6.0f;
+
+                Vector origin = new Vector(
+                    pawn.AbsOrigin.X + pawn.ViewOffset.X + fwdX * fwdDist + rightX * currentOffset + upX * upDist,
+                    pawn.AbsOrigin.Y + pawn.ViewOffset.Y + fwdY * fwdDist + rightY * currentOffset + upY * upDist,
+                    pawn.AbsOrigin.Z + pawn.ViewOffset.Z + fwdZ * fwdDist + rightZ * currentOffset + upZ * upDist
+                );
+
+                QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
+                wp.Teleport(origin, angle, new Vector(0,0,0));
+            });
+        }
+    }
+
+    private void CreateFloatingHUDMessages(CCSPlayerController player, string message, bool isPersistent = false, int lineIndex = 0)
     {
         message = message.Trim();
         message = System.Text.RegularExpressions.Regex.Replace(message, @"[\-\]", "");
@@ -153,21 +247,17 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         float upY = fwdZ * rightX - fwdX * rightZ;
         float upZ = fwdX * rightY - fwdY * rightX;
 
-        // --- CASCADING LOGIC ---
-        if (!_playerActiveCount.ContainsKey(player.Slot)) _playerActiveCount[player.Slot] = 0;
-        if (!_playerCurrentIndex.ContainsKey(player.Slot)) _playerCurrentIndex[player.Slot] = 0;
-
-        if (_playerActiveCount[player.Slot] == 0) _playerCurrentIndex[player.Slot] = 0;
-        else _playerCurrentIndex[player.Slot] = (_playerCurrentIndex[player.Slot] + 1) % 10;
-
-        int lineIndex = _playerCurrentIndex[player.Slot];
-        _playerActiveCount[player.Slot]++;
+        // Clear existing messages to prevent overlap and simulate UI replacing itself
+        if (lineIndex == 0)
+        {
+            ClearPlayerHUDMessages(player);
+        }
 
         // Reverted to original distance and sizes for crisp font resolution
-        float fwdDist = 120.0f;
-        float rightDistOffset = 45.0f;
-        float baseUpDist = 12.0f;
-        float lineSpacing = 8.0f;
+        float fwdDist = 110.0f;
+        float rightDistOffset = -25.0f; // Negative value to place it on the right side of the screen
+        float baseUpDist = 6.0f;
+        float lineSpacing = 4.0f;
         float upDist = baseUpDist - (lineIndex * lineSpacing);
 
         var wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
@@ -175,17 +265,19 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         wp.Enabled = true;
         wp.MessageText = "";
-        wp.FontSize = 14;
-        wp.FontName = "Arial";
+        wp.FontSize = 12;
+        wp.FontName = "Stratum2";
         wp.Fullbright = true;
         wp.WorldUnitsPerPx = 0.25f;
-        wp.Color = System.Drawing.Color.Lime;
+        wp.Color = System.Drawing.Color.FromArgb(255, 128, 64);
         wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
         wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
         wp.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
         wp.DrawBackground = true;
         wp.BackgroundBorderWidth = 0.2f;
         wp.BackgroundBorderHeight = 0.2f;
+        wp.BackgroundColor = System.Drawing.Color.Transparent;
+        wp.BackgroundBorderColor = System.Drawing.Color.FromArgb(255, 128, 64);
 
         Vector origin = new Vector(
             player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * rightDistOffset + upX * upDist,
@@ -202,6 +294,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (!_allPlayerTexts.ContainsKey(player.Slot)) _allPlayerTexts[player.Slot] = new();
         _allPlayerTexts[player.Slot].Add(wp);
 
+        // Make it slide in from the right immediately after spawning
+        SlideInHUD(wp, player);
+
         if (isPersistent)
         {
             if (!_playerPersistentHUDs.ContainsKey(player.Slot)) _playerPersistentHUDs[player.Slot] = new();
@@ -209,7 +304,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
         else
         {
-            FadeAndRemoveHUD(wp, player.Slot);
+            SlideOutAndRemoveHUD(wp, player, 5.0f);
         }
     }
 
@@ -996,9 +1091,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         int startIndex = page * Config.NominatePerPage;
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
-        player.PrintToChat($" {ColorDefault}Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
-        for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; player.PrintToChat($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
-        if (totalPages > 1) CreateFloatingHUDMessages(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
+        
+        var sb = new StringBuilder();
+        sb.AppendLine($" {ColorDefault}Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
+        for (int i = startIndex; i < endIndex; i++) { 
+            int displayNum = (i - startIndex) + 1; 
+            sb.AppendLine($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); 
+        }
+        if (totalPages > 1) sb.AppendLine($" {ColorGreen}[0] {ColorDefault}Next Page");
+        
+        CreateFloatingHUDMessages(player, sb.ToString().TrimEnd(), true);
     }
 
     private HookResult HandleNominationInput(CCSPlayerController player, string input)
@@ -1049,7 +1151,31 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
     }
 
-    private void CloseNominationMenu(CCSPlayerController player) { _nominatingPlayers.Remove(player.Slot); _playerNominationPage.Remove(player.Slot); }
+    private void ClearPlayerHUDMessages(CCSPlayerController player)
+    {
+        if (_allPlayerTexts.TryGetValue(player.Slot, out var existingTexts))
+        {
+            foreach (var existingWp in existingTexts.ToList())
+            {
+                if (existingWp != null && existingWp.IsValid)
+                {
+                    SlideOutAndRemoveHUD(existingWp, player);
+                }
+            }
+            existingTexts.Clear();
+        }
+
+        if (_playerPersistentHUDs.TryGetValue(player.Slot, out var persistentTexts))
+        {
+            persistentTexts.Clear();
+        }
+    }
+
+    private void CloseNominationMenu(CCSPlayerController player) { 
+        _nominatingPlayers.Remove(player.Slot); 
+        _playerNominationPage.Remove(player.Slot); 
+        ClearPlayerHUDMessages(player);
+    }
 
     // --- Forcemap Logic ---
     private void AttemptForcemap(CCSPlayerController? player, string? searchTerm = null)
@@ -1101,9 +1227,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         int startIndex = page * Config.NominatePerPage;
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
-        player.PrintToChat($" {ColorDefault}[Forcemap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
-        for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; player.PrintToChat($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
-        if (totalPages > 1) CreateFloatingHUDMessages(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
+        
+        var sb = new StringBuilder();
+        sb.AppendLine($" {ColorDefault}[Forcemap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
+        for (int i = startIndex; i < endIndex; i++) { 
+            int displayNum = (i - startIndex) + 1; 
+            sb.AppendLine($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); 
+        }
+        if (totalPages > 1) sb.AppendLine($" {ColorGreen}[0] {ColorDefault}Next Page");
+        
+        CreateFloatingHUDMessages(player, sb.ToString().TrimEnd(), true);
     }
 
     private HookResult HandleForcemapInput(CCSPlayerController player, string input)
@@ -1127,7 +1260,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
         return HookResult.Continue;
     }
-    private void CloseForcemapMenu(CCSPlayerController player) { _forcemapPlayers.Remove(player.Slot); _playerForcemapPage.Remove(player.Slot); }
+    private void CloseForcemapMenu(CCSPlayerController player) { 
+        _forcemapPlayers.Remove(player.Slot); 
+        _playerForcemapPage.Remove(player.Slot); 
+        ClearPlayerHUDMessages(player);
+    }
 
     // --- SetNextMap Logic ---
     private void AttemptSetNextMap(CCSPlayerController? player, string? searchTerm = null)
@@ -1176,9 +1313,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         int startIndex = page * Config.NominatePerPage;
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
-        player.PrintToChat($" {ColorDefault}[SetNextMap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
-        for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; player.PrintToChat($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
-        if (totalPages > 1) CreateFloatingHUDMessages(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
+        
+        var sb = new StringBuilder();
+        sb.AppendLine($" {ColorDefault}[SetNextMap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
+        for (int i = startIndex; i < endIndex; i++) { 
+            int displayNum = (i - startIndex) + 1; 
+            sb.AppendLine($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); 
+        }
+        if (totalPages > 1) sb.AppendLine($" {ColorGreen}[0] {ColorDefault}Next Page");
+        
+        CreateFloatingHUDMessages(player, sb.ToString().TrimEnd(), true);
     }
 
     private HookResult HandleSetNextMapInput(CCSPlayerController player, string input)
@@ -1215,7 +1359,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         Server.PrintToChatAll($" {ColorDefault}{dashes}");
     }
 
-    private void CloseSetNextMapMenu(CCSPlayerController player) { _setnextmapPlayers.Remove(player.Slot); _playerSetNextMapPage.Remove(player.Slot); }
+    private void CloseSetNextMapMenu(CCSPlayerController player) { 
+        _setnextmapPlayers.Remove(player.Slot); 
+        _playerSetNextMapPage.Remove(player.Slot); 
+        ClearPlayerHUDMessages(player);
+    }
 
     // --- EndWarmup Logic ---
     private void AttemptEndWarmup(CCSPlayerController? player)
@@ -1381,12 +1529,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (int.TryParse(input, out int option) && _activeVoteOptions.ContainsKey(option)) 
         { 
             _playerVotes[player.Slot] = option; 
-            
-            if (_playerPersistentHUDs.TryGetValue(player.Slot, out var list))
-            {
-                foreach (var wp in list) if (wp != null && wp.IsValid) FadeAndRemoveHUD(wp, player.Slot);
-                list.Clear();
-            }
+            ClearPlayerHUDMessages(player);
 
             player.PrintToChat($" {ColorDefault}You voted for: {ColorGreen}{GetMapName(_activeVoteOptions[option])}{ColorDefault}"); 
             return HookResult.Handled; 
@@ -1403,7 +1546,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         foreach (var kvp in _allPlayerTexts)
         {
-            foreach (var wp in kvp.Value) if (wp != null && wp.IsValid) FadeAndRemoveHUD(wp, kvp.Key);
+            var p = Utilities.GetPlayerFromSlot(kvp.Key);
+            if (p != null && IsValidPlayer(p)) 
+            {
+                foreach (var wp in kvp.Value.ToList()) if (wp != null && wp.IsValid) SlideOutAndRemoveHUD(wp, p);
+            }
+            else
+            {
+                foreach (var wp in kvp.Value.ToList()) if (wp != null && wp.IsValid) wp.Remove();
+            }
+            kvp.Value.Clear();
         }
         _playerPersistentHUDs.Clear();
         string winningMapId; int voteCount;
@@ -1477,7 +1629,15 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     }
 
     private void PrintVoteOptionsToAll() { foreach (var p in GetHumanPlayers()) PrintVoteOptionsToPlayer(p); }
-    private void PrintVoteOptionsToPlayer(CCSPlayerController player) { CreateFloatingHUDMessages(player, $" {ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:", true); foreach (var kvp in _activeVoteOptions) CreateFloatingHUDMessages(player, $" {ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}", true); }
+    private void PrintVoteOptionsToPlayer(CCSPlayerController player) { 
+        var sb = new StringBuilder();
+        sb.AppendLine($" {ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:");
+        foreach (var kvp in _activeVoteOptions) 
+        {
+            sb.AppendLine($" {ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}");
+        }
+        CreateFloatingHUDMessages(player, sb.ToString().TrimEnd(), true); 
+    }
     private string GetMapName(string mapId) => _availableMaps.FirstOrDefault(m => m.Id == mapId)?.Name ?? "Unknown";
 
     private void PrintVoteProgress()
