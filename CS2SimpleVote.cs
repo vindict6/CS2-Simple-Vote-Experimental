@@ -235,8 +235,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         AddCommandListener("say_team", OnPlayerChat, HookMode.Post);
         AddCommandListener("pause", OnPauseCommand, HookMode.Pre);
         AddCommandListener("setpause", OnPauseCommand, HookMode.Pre);
-        AddCommandListener("invnext", OnInvNext, HookMode.Pre);
-        AddCommandListener("invprev", OnInvPrev, HookMode.Pre);
     }
 
     public override void Unload(bool hotReload)
@@ -285,8 +283,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         RemoveCommandListener("say_team", OnPlayerChat, HookMode.Post);
         RemoveCommandListener("pause", OnPauseCommand, HookMode.Pre);
         RemoveCommandListener("setpause", OnPauseCommand, HookMode.Pre);
-        RemoveCommandListener("invnext", OnInvNext, HookMode.Pre);
-        RemoveCommandListener("invprev", OnInvPrev, HookMode.Pre);
         _cts.Cancel();
         _cts.Dispose();
 
@@ -511,45 +507,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private IEnumerable<CCSPlayerController> GetHumanPlayers() => Utilities.GetPlayers().Where(IsValidPlayer);
 
     // --- Command Handlers ---
-    private HookResult OnInvNext(CCSPlayerController? player, CommandInfo info)
-    {
-        if (player == null || !player.IsValid) return HookResult.Continue;
-        return HandleScroll(player, 1);
-    }
 
-    private HookResult OnInvPrev(CCSPlayerController? player, CommandInfo info)
-    {
-        if (player == null || !player.IsValid) return HookResult.Continue;
-        return HandleScroll(player, -1);
-    }
-
-    private HookResult HandleScroll(CCSPlayerController player, int direction)
-    {
-        bool handled = false;
-        
-        if (_nominatingPlayers.TryGetValue(player.Slot, out var nomMaps))
-        {
-            int offset = _playerNominationPage.GetValueOrDefault(player.Slot, 0) + direction;
-            _playerNominationPage[player.Slot] = Math.Clamp(offset, 0, Math.Max(0, nomMaps.Count - 8));
-            handled = true;
-        }
-        else if (_forcemapPlayers.TryGetValue(player.Slot, out var forceMaps))
-        {
-            int offset = _playerForcemapPage.GetValueOrDefault(player.Slot, 0) + direction;
-            _playerForcemapPage[player.Slot] = Math.Clamp(offset, 0, Math.Max(0, forceMaps.Count - 8));
-            handled = true;
-        }
-        else if (_setnextmapPlayers.TryGetValue(player.Slot, out var nextMaps))
-        {
-            int offset = _playerSetNextMapPage.GetValueOrDefault(player.Slot, 0) + direction;
-            _playerSetNextMapPage[player.Slot] = Math.Clamp(offset, 0, Math.Max(0, nextMaps.Count - 8));
-            handled = true;
-        }
-
-        return handled ? HookResult.Handled : HookResult.Continue; 
-    }
-
-    [ConsoleCommand("rtv", "Rock the Vote")]
     public void OnRtvCommand(CCSPlayerController? player, CommandInfo command) => AttemptRtv(player);
 
     [ConsoleCommand("nominate", "Nominate a map (Usage: nominate [name])")]
