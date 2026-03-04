@@ -259,7 +259,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         // Reverted to original distance and sizes for crisp font resolution
         float fwdDist = 110.0f;
-        float rightDistOffset = -25.0f; // Negative value to place it on the right side of the screen
+        float rightDistOffset = -35.0f; // More negative moves it further right
         float baseUpDist = 50.0f;
         float lineSpacing = 4.0f;
         float upDist = baseUpDist - (lineIndex * lineSpacing);
@@ -272,17 +272,19 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         wp.Enabled = true;
         wp.MessageText = "";
-        wp.FontSize = 12;
+        wp.FontSize = 16;
         wp.FontName = "Stratum2";
         wp.Fullbright = true;
         wp.WorldUnitsPerPx = 0.25f;
         wp.Color = System.Drawing.Color.FromArgb(255, 128, 64);
+        // Try to set background color to make it darker/more opaque
+        try { wp.GetType().GetProperty("BackgroundColor")?.SetValue(wp, System.Drawing.Color.FromArgb(255, 0, 0, 0)); } catch {}
         wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
         wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
         wp.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
         wp.DrawBackground = true;
-        wp.BackgroundBorderWidth = 5.0f;
-        wp.BackgroundBorderHeight = 2.0f;
+        wp.BackgroundBorderWidth = 8.0f;
+        wp.BackgroundBorderHeight = 4.0f;
 
         Vector origin = new Vector(
             player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * rightDistOffset + upX * upDist,
