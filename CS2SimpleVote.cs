@@ -145,7 +145,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private void ClearPlayerHUDMessages(CCSPlayerController player)
     {
         if (player == null || !player.IsValid) return;
-        player.PrintToCenterHtml("");
+        player.PrintToCenterHtml(" ", 1);
     }
 
     private void LogicTick()
