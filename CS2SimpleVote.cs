@@ -60,6 +60,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private readonly Dictionary<int, int> _playerCurrentIndex = new();
     private readonly Dictionary<int, List<CPointWorldText>> _playerPersistentHUDs = new();
     private readonly Dictionary<int, List<CPointWorldText>> _allPlayerTexts = new();
+    private readonly Dictionary<uint, float> _hudUpDist = new();
+    private readonly Dictionary<uint, float> _hudRightDist = new();
     private readonly Dictionary<int, CPointOrient> _playerPointOrients = new();
     
     private Dictionary<char, System.Drawing.Color> ChatColors = new Dictionary<char, System.Drawing.Color>
@@ -94,8 +96,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
             int steps = 15;
             float duration = 0.5f;
-            float startOffset = -35.0f;
-            float endOffset = -220.0f;
+            float startOffset = _hudRightDist.GetValueOrDefault(wp.Index, -25.0f);
+            float endOffset = startOffset - 185.0f; // Slide rightwards offscreen
+            float upDist = _hudUpDist.GetValueOrDefault(wp.Index, 6.0f);
 
             for (int i = 1; i <= steps; i++)
             {
@@ -124,7 +127,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                     float upZ = fwdX * rightY - fwdY * rightX;
 
                     float fwdDist = 110.0f;
-                    float upDist = 6.0f;
 
                     Vector origin = new Vector(
                         pawn.AbsOrigin.X + pawn.ViewOffset.X + fwdX * fwdDist + rightX * currentOffset + upX * upDist,
@@ -163,8 +165,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         int steps = 15;
         float duration = 0.5f;
-        float startOffset = -220.0f;
-        float endOffset = -35.0f;
+        float endOffset = _hudRightDist.GetValueOrDefault(wp.Index, -25.0f);
+        float startOffset = endOffset - 185.0f;
+        float upDist = _hudUpDist.GetValueOrDefault(wp.Index, 6.0f);
 
         for (int i = 1; i <= steps; i++)
         {
@@ -192,7 +195,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 float upZ = fwdX * rightY - fwdY * rightX;
 
                 float fwdDist = 110.0f;
-                float upDist = 6.0f;
 
                 Vector origin = new Vector(
                     pawn.AbsOrigin.X + pawn.ViewOffset.X + fwdX * fwdDist + rightX * currentOffset + upX * upDist,
@@ -262,6 +264,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         var wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
         if (wp == null) return;
+        
+        _hudUpDist[wp.Index] = upDist;
+        _hudRightDist[wp.Index] = rightDistOffset;
 
         wp.Enabled = true;
         wp.MessageText = "";
@@ -413,6 +418,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         AddCommandListener("say", OnPlayerChat, HookMode.Post);
         AddCommandListener("say_team", OnPlayerChat, HookMode.Post);
+        AddCommandListener("pause", OnPauseCommand, HookMode.Pre);
+        AddCommandListener("setpause", OnPauseCommand, HookMode.Pre);
     }
 
     public override void Unload(bool hotReload)
@@ -471,6 +478,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         RemoveCommandListener("say", OnPlayerChat, HookMode.Post);
         RemoveCommandListener("say_team", OnPlayerChat, HookMode.Post);
+        RemoveCommandListener("pause", OnPauseCommand, HookMode.Pre);
+        RemoveCommandListener("setpause", OnPauseCommand, HookMode.Pre);
 
         // Cancel background task
         _cts.Cancel();
@@ -754,6 +763,25 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     [ConsoleCommand("votedebug", "Show debug info (Admin only)")]
     public void OnVoteDebugCommand(CCSPlayerController? player, CommandInfo command) => AttemptVoteDebug(player);
+
+    private HookResult OnPauseCommand(CCSPlayerController? player, CommandInfo info)
+    {
+        if (player == null || !player.IsValid) return HookResult.Continue;
+        
+        // Report the user to admins
+        string msg = $" {ColorRed}[Admin Alert] {ColorDefault}Player {ColorGreen}{player.PlayerName} {ColorDefault}({player.SteamID}) pressed {ColorRed}Pause Break{ColorDefault}!";
+        LogRoutine(new { player.PlayerName, player.SteamID }, "Player pressed pause/setpause");
+
+        foreach (var p in Utilities.GetPlayers())
+        {
+            if (IsValidPlayer(p) && AdminManager.PlayerHasPermissions(p, "@css/generic"))
+            {
+                p.PrintToChat(msg);
+            }
+        }
+        
+        return HookResult.Continue; // Let the engine handle it, but we alerted admins. (Change to Handled if you want to block it)
+    }
 
     private HookResult OnPlayerChat(CCSPlayerController? player, CommandInfo info)
     {
