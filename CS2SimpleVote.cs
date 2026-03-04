@@ -95,9 +95,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         {
             if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
 
-            int steps = 15;
-            float duration = 0.5f;
-            float startOffset = _hudRightDist.GetValueOrDefault(wp.Index, -25.0f);
+            int steps = 30; // Smoother animation
+            float duration = 1.0f; // Slower out
+            float startOffset = _hudRightDist.GetValueOrDefault(wp.Index, -35.0f);
             float endOffset = startOffset - 185.0f; // Slide rightwards offscreen
             float upDist = _hudUpDist.GetValueOrDefault(wp.Index, 6.0f);
 
@@ -164,9 +164,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     {
         if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
 
-        int steps = 15;
-        float duration = 0.5f;
-        float endOffset = _hudRightDist.GetValueOrDefault(wp.Index, -25.0f);
+        int steps = 30; // Smoother animation
+        float duration = 1.0f; // Slower in
+        float endOffset = _hudRightDist.GetValueOrDefault(wp.Index, -35.0f);
         float startOffset = endOffset - 185.0f;
         float upDist = _hudUpDist.GetValueOrDefault(wp.Index, 6.0f);
 
@@ -286,10 +286,13 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         wp.BackgroundBorderWidth = 5.0f;
         wp.BackgroundBorderHeight = 2.0f;
 
+        // Spawn initially off-screen at the exact start position of SlideInHUD
+        float spawnRightDistOffset = rightDistOffset - 185.0f; 
+
         Vector origin = new Vector(
-            player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * rightDistOffset + upX * upDist,
-            player.PlayerPawn.Value.AbsOrigin.Y + player.PlayerPawn.Value.ViewOffset.Y + fwdY * fwdDist + rightY * rightDistOffset + upY * upDist,
-            player.PlayerPawn.Value.AbsOrigin.Z + player.PlayerPawn.Value.ViewOffset.Z + fwdZ * fwdDist + rightZ * rightDistOffset + upZ * upDist
+            player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * spawnRightDistOffset + upX * upDist,
+            player.PlayerPawn.Value.AbsOrigin.Y + player.PlayerPawn.Value.ViewOffset.Y + fwdY * fwdDist + rightY * spawnRightDistOffset + upY * upDist,
+            player.PlayerPawn.Value.AbsOrigin.Z + player.PlayerPawn.Value.ViewOffset.Z + fwdZ * fwdDist + rightZ * spawnRightDistOffset + upZ * upDist
         );
 
         QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
@@ -454,6 +457,12 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
         _allPlayerTexts.Clear();
         _playerPersistentHUDs.Clear();
+
+        foreach (var orient in _playerPointOrients.Values)
+        {
+            if (orient != null && orient.IsValid) orient.Remove();
+        }
+        _playerPointOrients.Clear();
 
         // Clear collections to release references
         _availableMaps.Clear();
@@ -1787,7 +1796,22 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private HookResult OnPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
     {
         LogRoutine(new { player = @event.Userid?.PlayerName }, null);
-        if (@event.Userid is { } player) { _rtvVoters.Remove(player.Slot); _playerVotes.Remove(player.Slot); CloseNominationMenu(player); CloseForcemapMenu(player); CloseSetNextMapMenu(player); } return HookResult.Continue; }
+        if (@event.Userid is { } player) 
+        { 
+            _rtvVoters.Remove(player.Slot); 
+            _playerVotes.Remove(player.Slot); 
+            CloseNominationMenu(player); 
+            CloseForcemapMenu(player); 
+            CloseSetNextMapMenu(player);
+            
+            if (_playerPointOrients.TryGetValue(player.Slot, out var orient))
+            {
+                if (orient != null && orient.IsValid) orient.Remove();
+                _playerPointOrients.Remove(player.Slot);
+            }
+        } 
+        return HookResult.Continue; 
+    }
 
     // --- Logging Infrastructure ---
     private void StartLogWriter()
