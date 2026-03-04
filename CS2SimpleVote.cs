@@ -166,9 +166,6 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
             foreach (var p in GetHumanPlayers())
             {
-                if (_nominatingPlayers.ContainsKey(p.Slot)) { DisplayNominationMenu(p); continue; }
-                if (_forcemapPlayers.ContainsKey(p.Slot)) { DisplayForcemapMenu(p); continue; }
-                if (_setnextmapPlayers.ContainsKey(p.Slot)) { DisplaySetNextMapMenu(p); continue; }
                 if (_voteInProgress && !_playerVotes.ContainsKey(p.Slot))
                 {
                     PrintVoteOptionsToPlayer(p);
@@ -893,86 +890,66 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         var validMaps = _availableMaps
             .Where(m => !_nominatedMaps.Any(n => n.Id == m.Id))
             .Where(m => !IsCurrentMap(m))
-            .ToList();
+              .OrderBy(m => m.Name)
+              .ToList();
 
-        if (!string.IsNullOrEmpty(searchTerm))
-        {
-            validMaps = validMaps.Where(m => m.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
+          if (!string.IsNullOrEmpty(searchTerm))
+          {
+              validMaps = validMaps.Where(m => m.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)).ToList();
+          }
 
-        if (validMaps.Count == 0)
-        {
-            p.PrintToChat(string.IsNullOrEmpty(searchTerm) ? $" {ColorDefault}No maps available to nominate." : $" {ColorDefault}No maps found matching: {ColorGreen}{searchTerm}");
-            return;
-        }
+          if (validMaps.Count == 0)
+          {
+              p.PrintToChat(string.IsNullOrEmpty(searchTerm) ? $" {ColorDefault}No maps available to nominate." : $" {ColorDefault}No maps found matching: {ColorGreen}{searchTerm}");
+              return;
+          }
 
-        // If there is only one match and a search term was used, nominate it immediately
-        if (validMaps.Count == 1 && !string.IsNullOrEmpty(searchTerm))
-        {
-            var selectedMap = validMaps[0];
-            if (_nominatedMaps.Any(m => m.Id == selectedMap.Id))
-            {
-                p.PrintToChat($" {ColorDefault}That map is already nominated.");
-            }
-            else
-            {
-                ProcessNomination(p, selectedMap);
-            }
-            return;
-        }
+          // If there is only one match and a search term was used, nominate it immediately
+          if (validMaps.Count == 1 && !string.IsNullOrEmpty(searchTerm))
+          {
+              var selectedMap = validMaps[0];
+              if (_nominatedMaps.Any(m => m.Id == selectedMap.Id))
+              {
+                  p.PrintToChat($" {ColorDefault}That map is already nominated.");
+              }
+              else
+              {
+                  ProcessNomination(p, selectedMap);
+              }
+              return;
+          }
 
-        _nominatingPlayers[p.Slot] = validMaps;
-        _playerNominationPage[p.Slot] = 0;
-        DisplayNominationMenu(p);
-    }
+          _nominatingPlayers[p.Slot] = validMaps;
+          p.PrintToChat($" {ColorGreen}--- MAP NOMINATION ---");
+          p.PrintToChat($" {ColorDefault}Scroll up to search for the maps. Type a number to select, or 'cancel' to exit.");
+          for (int i = 0; i < validMaps.Count; i++)
+          {
+              p.PrintToChat($" {ColorGreen}[{i + 1}]{ColorDefault} {validMaps[i].Name}");
+          }
+      }
 
-    private void DisplayNominationMenu(CCSPlayerController player)
-    {
-        if (!_nominatingPlayers.TryGetValue(player.Slot, out var maps)) return;
-        int page = _playerNominationPage.GetValueOrDefault(player.Slot, 0);
-        int totalPages = (int)Math.Ceiling((double)maps.Count / Config.NominatePerPage);
-        if (page >= totalPages && totalPages > 0) { page = 0; _playerNominationPage[player.Slot] = page; }
+      private HookResult HandleNominationInput(CCSPlayerController player, string input)
+      {
+          LogRoutine(new { player, input }, null);
+          if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseNominationMenu(player); player.PrintToChat($" {ColorDefault}Nomination cancelled."); return HookResult.Handled; }
+          if (int.TryParse(input, out int selection))
+          {
+              var maps = _nominatingPlayers[player.Slot];
+              int realIndex = selection - 1;
+              if (realIndex >= 0 && realIndex < maps.Count)
+              {
+                  var selectedMap = maps[realIndex];
+                  bool isRenomination = _hasNominatedSteamIds.Contains(player.SteamID);
 
-        int startIndex = page * Config.NominatePerPage;
-        int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
-        
-        var sb = new StringBuilder();
-        string titleText = $"Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):";
-        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
-        for (int i = startIndex; i < endIndex; i++) { 
-            int displayNum = (i - startIndex) + 1; 
-            sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
-        }
-        if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font><br>");
-        sb.Append("</font>");
-        
-        player.PrintToCenterHtml(sb.ToString(), 1);
-    }
-
-    private HookResult HandleNominationInput(CCSPlayerController player, string input)
-    {
-        LogRoutine(new { player, input }, null);
-        if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseNominationMenu(player); player.PrintToChat($" {ColorDefault}Nomination cancelled."); return HookResult.Handled; }
-        if (input == "0") { _playerNominationPage[player.Slot]++; DisplayNominationMenu(player); return HookResult.Handled; }
-        if (int.TryParse(input, out int selection))
-        {
-            var maps = _nominatingPlayers[player.Slot];
-            int page = _playerNominationPage[player.Slot];
-            int realIndex = (page * Config.NominatePerPage) + (selection - 1);
-            if (realIndex >= 0 && realIndex < maps.Count && realIndex >= (page * Config.NominatePerPage) && realIndex < ((page + 1) * Config.NominatePerPage))
-            {
-                var selectedMap = maps[realIndex];
-                bool isRenomination = _hasNominatedSteamIds.Contains(player.SteamID);
-
-                if (!isRenomination && _nominatedMaps.Count >= Config.VoteOptionsCount) player.PrintToChat($" {ColorDefault}Nomination list is full.");
-                else if (_nominatedMaps.Any(m => m.Id == selectedMap.Id)) player.PrintToChat($" {ColorDefault}That map was just nominated by someone else.");
-                else { ProcessNomination(player, selectedMap); }
-                CloseNominationMenu(player);
-                return HookResult.Handled;
-            }
-        }
-        return HookResult.Continue;
-    }
+                  if (!isRenomination && _nominatedMaps.Count >= Config.VoteOptionsCount) player.PrintToChat($" {ColorDefault}Nomination list is full.");
+                  else if (_nominatedMaps.Any(m => m.Id == selectedMap.Id)) player.PrintToChat($" {ColorDefault}That map was just nominated by someone else.");
+                  else { ProcessNomination(player, selectedMap); }
+                  CloseNominationMenu(player);
+                  return HookResult.Handled;
+              }
+          }
+          return HookResult.Continue;
+      }
 
     private void ProcessNomination(CCSPlayerController player, MapItem map)
     {
@@ -1018,7 +995,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             return;
         }
 
-        var validMaps = _availableMaps.ToList();
+        var validMaps = _availableMaps.OrderBy(m => m.Name).ToList();
 
         if (!string.IsNullOrEmpty(searchTerm))
         {
@@ -1041,44 +1018,23 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
 
         _forcemapPlayers[p.Slot] = validMaps;
-        _playerForcemapPage[p.Slot] = 0;
-        DisplayForcemapMenu(p);
-    }
-
-    private void DisplayForcemapMenu(CCSPlayerController player)
-    {
-        if (!_forcemapPlayers.TryGetValue(player.Slot, out var maps)) return;
-        int page = _playerForcemapPage.GetValueOrDefault(player.Slot, 0);
-        int totalPages = (int)Math.Ceiling((double)maps.Count / Config.NominatePerPage);
-        if (page >= totalPages && totalPages > 0) { page = 0; _playerForcemapPage[player.Slot] = page; }
-
-        int startIndex = page * Config.NominatePerPage;
-        int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
-        
-        var sb = new StringBuilder();
-        string titleText = $"[Forcemap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):";
-        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
-        for (int i = startIndex; i < endIndex; i++) { 
-            int displayNum = (i - startIndex) + 1; 
-            sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
+        p.PrintToChat($" {ColorGreen}--- MAP FORCEMAP ---");
+        p.PrintToChat($" {ColorDefault}Scroll up to search for the maps. Type a number to select, or 'cancel' to exit.");
+        for (int i = 0; i < validMaps.Count; i++)
+        {
+            p.PrintToChat($" {ColorGreen}[{i + 1}]{ColorDefault} {validMaps[i].Name}");
         }
-        if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font><br>");
-        sb.Append("</font>");
-        
-        player.PrintToCenterHtml(sb.ToString(), 1);
     }
 
     private HookResult HandleForcemapInput(CCSPlayerController player, string input)
     {
         LogRoutine(new { player, input }, null);
         if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseForcemapMenu(player); player.PrintToChat($" {ColorDefault}Forcemap cancelled."); return HookResult.Handled; }
-        if (input == "0") { _playerForcemapPage[player.Slot]++; DisplayForcemapMenu(player); return HookResult.Handled; }
         if (int.TryParse(input, out int selection))
         {
             var maps = _forcemapPlayers[player.Slot];
-            int page = _playerForcemapPage[player.Slot];
-            int realIndex = (page * Config.NominatePerPage) + (selection - 1);
-            if (realIndex >= 0 && realIndex < maps.Count && realIndex >= (page * Config.NominatePerPage) && realIndex < ((page + 1) * Config.NominatePerPage))
+            int realIndex = selection - 1;
+            if (realIndex >= 0 && realIndex < maps.Count)
             {
                 var selectedMap = maps[realIndex];
                 Server.PrintToChatAll($" {ColorDefault} Admin {ColorGreen}{player.PlayerName}{ColorDefault} forced map change to {ColorGreen}{selectedMap.Name}{ColorDefault}.");
@@ -1108,7 +1064,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             return;
         }
 
-        var validMaps = _availableMaps.ToList();
+        var validMaps = _availableMaps.OrderBy(m => m.Name).ToList();
 
         if (!string.IsNullOrEmpty(searchTerm))
         {
@@ -1128,44 +1084,23 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
 
         _setnextmapPlayers[p.Slot] = validMaps;
-        _playerSetNextMapPage[p.Slot] = 0;
-        DisplaySetNextMapMenu(p);
-    }
-
-    private void DisplaySetNextMapMenu(CCSPlayerController player)
-    {
-        if (!_setnextmapPlayers.TryGetValue(player.Slot, out var maps)) return;
-        int page = _playerSetNextMapPage.GetValueOrDefault(player.Slot, 0);
-        int totalPages = (int)Math.Ceiling((double)maps.Count / Config.NominatePerPage);
-        if (page >= totalPages && totalPages > 0) { page = 0; _playerSetNextMapPage[player.Slot] = page; }
-
-        int startIndex = page * Config.NominatePerPage;
-        int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
-        
-        var sb = new StringBuilder();
-        string titleText = $"[SetNextMap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):";
-        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
-        for (int i = startIndex; i < endIndex; i++) { 
-            int displayNum = (i - startIndex) + 1; 
-            sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
+        p.PrintToChat($" {ColorGreen}--- MAP SETNEXTMAP ---");
+        p.PrintToChat($" {ColorDefault}Scroll up to search for the maps. Type a number to select, or 'cancel' to exit.");
+        for (int i = 0; i < validMaps.Count; i++)
+        {
+            p.PrintToChat($" {ColorGreen}[{i + 1}]{ColorDefault} {validMaps[i].Name}");
         }
-        if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font><br>");
-        sb.Append("</font>");
-        
-        player.PrintToCenterHtml(sb.ToString(), 1);
     }
 
     private HookResult HandleSetNextMapInput(CCSPlayerController player, string input)
     {
         LogRoutine(new { player, input }, null);
         if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseSetNextMapMenu(player); player.PrintToChat($" {ColorDefault}SetNextMap cancelled."); return HookResult.Handled; }
-        if (input == "0") { _playerSetNextMapPage[player.Slot]++; DisplaySetNextMapMenu(player); return HookResult.Handled; }
         if (int.TryParse(input, out int selection))
         {
             var maps = _setnextmapPlayers[player.Slot];
-            int page = _playerSetNextMapPage[player.Slot];
-            int realIndex = (page * Config.NominatePerPage) + (selection - 1);
-            if (realIndex >= 0 && realIndex < maps.Count && realIndex >= (page * Config.NominatePerPage) && realIndex < ((page + 1) * Config.NominatePerPage))
+            int realIndex = selection - 1;
+            if (realIndex >= 0 && realIndex < maps.Count)
             {
                 ProcessSetNextMap(player, maps[realIndex]);
                 CloseSetNextMapMenu(player);
@@ -1439,9 +1374,34 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     }
 
     private void PrintVoteOptionsToAll() { foreach (var p in GetHumanPlayers()) PrintVoteOptionsToPlayer(p); }
+
+    private string GetWarmupTimerHtml()
+    {
+        var gameRules = Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules").FirstOrDefault()?.GameRules;
+        if (gameRules != null && gameRules.WarmupPeriod)
+        {
+            float warmupEnd = gameRules.WarmupPeriodEnd;
+            float currentTime = Server.CurrentTime;
+            int timeRemaining = (int)Math.Max(0, warmupEnd - currentTime);
+            if (timeRemaining > 0)
+            {
+                int minutes = timeRemaining / 60;
+                int seconds = timeRemaining % 60;
+                return $"<font class='mono-spaced-font' color='#ff0000'>Warmup: {minutes:D2}:{seconds:D2}</font><br>";
+            }
+        }
+        return "";
+    }
+
     private void PrintVoteOptionsToPlayer(CCSPlayerController player) { 
         var sb = new StringBuilder();
         
+        string warmupHtml = GetWarmupTimerHtml();
+        if (!string.IsNullOrEmpty(warmupHtml))
+        {
+            sb.Append(warmupHtml);
+        }
+
         string titleText = "--- Type a number in chat to vote ---";
         if (_voteInProgress && _forceVoteTimeRemaining > 0)
         {
