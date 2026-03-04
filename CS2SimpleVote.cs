@@ -170,7 +170,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 player.PlayerPawn.Value.AbsOrigin.Z + player.PlayerPawn.Value.ViewOffset.Z + fwdZ * fwdDist + rightZ * rightDist + upZ * upDist
             );
 
-            wp.Teleport(origin, new QAngle(eyeAngles.X, eyeAngles.Y + 180.0f, eyeAngles.Z), new Vector(0,0,0));
+            QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
+            wp.Teleport(origin, angle, new Vector(0,0,0));
             wp.DispatchSpawn();
             
             // Required Dispatch inputs
