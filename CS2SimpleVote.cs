@@ -5,6 +5,7 @@ using CounterStrikeSharp.API.Modules.Commands;
 using CounterStrikeSharp.API.Modules.Cvars;
 using CounterStrikeSharp.API.Modules.Menu;
 using CounterStrikeSharp.API.Modules.Timers;
+using CounterStrikeSharp.API.Modules.UserMessages;
 using CounterStrikeSharp.API.Modules.Utils;
 using System.Collections.Concurrent;
 using System.Reflection;
@@ -64,6 +65,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private readonly Dictionary<uint, float> _hudUpDist = new();
     private readonly Dictionary<uint, float> _hudRightDist = new();
     private readonly Dictionary<int, CPointOrient> _playerPointOrients = new();
+    private readonly Dictionary<int, uint> _playerCurrentParent = new();
+    private readonly Dictionary<uint, int> _hudEntityToPlayerSlot = new(); // Fast tracking for OnTransmit
     
     private Dictionary<char, System.Drawing.Color> ChatColors = new Dictionary<char, System.Drawing.Color>
     {
@@ -87,6 +90,52 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     
 
+    private bool GetPlayerCamera(CCSPlayerController player, out CBaseEntity parentEntity, out Vector origin, out Vector viewOffset, out QAngle eyeAngles)
+    {
+        parentEntity = null!;
+        origin = new Vector(0, 0, 0);
+        viewOffset = new Vector(0, 0, 0);
+        eyeAngles = new QAngle(0, 0, 0);
+
+        if (player == null || !player.IsValid) return false;
+
+        bool isAlive = false;
+        if (player.PawnIsAlive) isAlive = true;
+        else if (player.PlayerPawn.Value != null && player.PlayerPawn.Value.IsValid) isAlive = ((CCSPlayerPawn)player.PlayerPawn.Value).Health > 0;
+
+        if (isAlive && player.PlayerPawn.Value != null && player.PlayerPawn.Value.IsValid)
+        {
+            var pawn = player.PlayerPawn.Value;
+            parentEntity = pawn;
+            origin = new Vector(pawn.AbsOrigin?.X ?? 0, pawn.AbsOrigin?.Y ?? 0, pawn.AbsOrigin?.Z ?? 0);
+            viewOffset = new Vector(pawn.ViewOffset.X, pawn.ViewOffset.Y, pawn.ViewOffset.Z);
+            eyeAngles = new QAngle(pawn.EyeAngles?.X ?? 0, pawn.EyeAngles?.Y ?? 0, pawn.EyeAngles?.Z ?? 0);
+            return true;
+        }
+
+        if (player.ObserverPawn.Value != null && player.ObserverPawn.Value.IsValid)
+        {
+            var obs = player.ObserverPawn.Value;
+            parentEntity = obs;
+            origin = new Vector(obs.AbsOrigin?.X ?? 0, obs.AbsOrigin?.Y ?? 0, obs.AbsOrigin?.Z ?? 0);
+            viewOffset = new Vector(obs.ViewOffset.X, obs.ViewOffset.Y, obs.ViewOffset.Z);
+            eyeAngles = new QAngle(obs.V_angle?.X ?? obs.AbsRotation?.X ?? 0, obs.V_angle?.Y ?? obs.AbsRotation?.Y ?? 0, obs.V_angle?.Z ?? obs.AbsRotation?.Z ?? 0);
+            return true;
+        }
+
+        if (player.PlayerPawn.Value != null && player.PlayerPawn.Value.IsValid)
+        {
+            var pawn = player.PlayerPawn.Value;
+            parentEntity = pawn;
+            origin = new Vector(pawn.AbsOrigin?.X ?? 0, pawn.AbsOrigin?.Y ?? 0, pawn.AbsOrigin?.Z ?? 0);
+            viewOffset = new Vector(pawn.ViewOffset.X, pawn.ViewOffset.Y, pawn.ViewOffset.Z);
+            eyeAngles = new QAngle(pawn.EyeAngles?.X ?? 0, pawn.EyeAngles?.Y ?? 0, pawn.EyeAngles?.Z ?? 0);
+            return true;
+        }
+
+        return false;
+    }
+
     private void SlideOutAndRemoveHUD(CPointWorldText wp, CCSPlayerController player, float initialDelay = 0.0f)
     {
         if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
@@ -108,13 +157,12 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
                 AddTimer(duration * progress, () => 
                 {
-                    if (wp == null || !wp.IsValid || player == null || !player.IsValid || player.PlayerPawn.Value == null) return;
+                    if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
+                    if (!GetPlayerCamera(player, out var parentEnt, out var pawnAbsOrigin, out var pawnViewOffset, out var eyeAngles)) return;
                     
                     float currentOffset = startOffset + (endOffset - startOffset) * easedProgress;
 
                     // Update position
-                    var pawn = player.PlayerPawn.Value;
-                    var eyeAngles = pawn.EyeAngles;
                     float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
                     float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
                     float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
@@ -130,9 +178,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                     float fwdDist = 110.0f;
 
                     Vector origin = new Vector(
-                        pawn.AbsOrigin.X + pawn.ViewOffset.X + fwdX * fwdDist + rightX * currentOffset + upX * upDist,
-                        pawn.AbsOrigin.Y + pawn.ViewOffset.Y + fwdY * fwdDist + rightY * currentOffset + upY * upDist,
-                        pawn.AbsOrigin.Z + pawn.ViewOffset.Z + fwdZ * fwdDist + rightZ * currentOffset + upZ * upDist
+                        pawnAbsOrigin.X + pawnViewOffset.X + fwdX * fwdDist + rightX * currentOffset + upX * upDist,
+                        pawnAbsOrigin.Y + pawnViewOffset.Y + fwdY * fwdDist + rightY * currentOffset + upY * upDist,
+                        pawnAbsOrigin.Z + pawnViewOffset.Z + fwdZ * fwdDist + rightZ * currentOffset + upZ * upDist
                     );
 
                     QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
@@ -142,7 +190,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
             AddTimer(duration + 0.1f, () => 
             {
-                if (wp != null && wp.IsValid) wp.Remove();
+                if (wp != null && wp.IsValid) 
+                {
+                    _hudEntityToPlayerSlot.Remove(wp.Index);
+                    wp.Remove();
+                }
                 if (_playerActiveCount.ContainsKey(player.Slot))
                 {
                     _playerActiveCount[player.Slot] = System.Math.Max(0, _playerActiveCount[player.Slot] - 1);
@@ -177,12 +229,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
             AddTimer(duration * progress, () => 
             {
-                if (wp == null || !wp.IsValid || player == null || !player.IsValid || player.PlayerPawn.Value == null) return;
+                if (wp == null || !wp.IsValid || player == null || !player.IsValid) return;
+                if (!GetPlayerCamera(player, out var parentEnt, out var pawnAbsOrigin, out var pawnViewOffset, out var eyeAngles)) return;
                 
                 float currentOffset = startOffset + (endOffset - startOffset) * easedProgress;
 
-                var pawn = player.PlayerPawn.Value;
-                var eyeAngles = pawn.EyeAngles;
                 float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
                 float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
                 float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
@@ -198,9 +249,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 float fwdDist = 110.0f;
 
                 Vector origin = new Vector(
-                    pawn.AbsOrigin.X + pawn.ViewOffset.X + fwdX * fwdDist + rightX * currentOffset + upX * upDist,
-                    pawn.AbsOrigin.Y + pawn.ViewOffset.Y + fwdY * fwdDist + rightY * currentOffset + upY * upDist,
-                    pawn.AbsOrigin.Z + pawn.ViewOffset.Z + fwdZ * fwdDist + rightZ * currentOffset + upZ * upDist
+                    pawnAbsOrigin.X + pawnViewOffset.X + fwdX * fwdDist + rightX * currentOffset + upX * upDist,
+                    pawnAbsOrigin.Y + pawnViewOffset.Y + fwdY * fwdDist + rightY * currentOffset + upY * upDist,
+                    pawnAbsOrigin.Z + pawnViewOffset.Z + fwdZ * fwdDist + rightZ * currentOffset + upZ * upDist
                 );
 
                 QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
@@ -215,9 +266,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         // Remove color codes but preserve newlines (\x0A) and carriage returns (\x0D)
         message = System.Text.RegularExpressions.Regex.Replace(message, @"[\x01-\x09\x0B\x0C\x0E-\x10]", "");
 
-        if (player.PlayerPawn.Value == null || player.PlayerPawn.Value.AbsOrigin == null) return;
-        
-        var pawn = player.PlayerPawn.Value;
+        if (!GetPlayerCamera(player, out var parentEntity, out var pawnAbsOrigin, out var pawnViewOffset, out var eyeAngles)) return;
 
         if (!_playerPointOrients.ContainsKey(player.Slot) || _playerPointOrients[player.Slot] == null || !_playerPointOrients[player.Slot].IsValid)
         {
@@ -228,17 +277,35 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 orient.GoalDirection = PointOrientGoalDirectionType_t.eEyesForward;
                 orient.DispatchSpawn();
                 
-                Vector orientPos = new Vector(pawn.AbsOrigin.X, pawn.AbsOrigin.Y, pawn.AbsOrigin.Z + pawn.ViewOffset.Z);
+                Vector orientPos = new Vector(pawnAbsOrigin.X, pawnAbsOrigin.Y, pawnAbsOrigin.Z + pawnViewOffset.Z);
                 
-                orient.AcceptInput("SetParent", pawn, null, "!activator");
-                orient.AcceptInput("SetTarget", pawn, null, "!activator");
-                orient.Teleport(orientPos, pawn.EyeAngles, null);
+                orient.AcceptInput("SetParent", parentEntity, null, "!activator");
+                orient.AcceptInput("SetTarget", parentEntity, null, "!activator");
+                orient.Teleport(orientPos, eyeAngles, null);
                 
                 _playerPointOrients[player.Slot] = orient;
+                _hudEntityToPlayerSlot[orient.Index] = player.Slot;
+                _playerCurrentParent[player.Slot] = parentEntity.Index;
+            }
+        }
+        else
+        {
+            // Dynamically update the parent in case they switched spectate targets or died
+            var oldOrient = _playerPointOrients[player.Slot];
+            if (oldOrient != null && oldOrient.IsValid)
+            {
+                uint currentParentIndex = _playerCurrentParent.GetValueOrDefault(player.Slot, uint.MaxValue);
+                if (currentParentIndex != parentEntity.Index)
+                {
+                    oldOrient.AcceptInput("ClearParent");
+                    oldOrient.Teleport(new Vector(pawnAbsOrigin.X, pawnAbsOrigin.Y, pawnAbsOrigin.Z + pawnViewOffset.Z), eyeAngles, null);
+                    oldOrient.AcceptInput("SetParent", parentEntity, null, "!activator");
+                    oldOrient.AcceptInput("SetTarget", parentEntity, null, "!activator");
+                    _playerCurrentParent[player.Slot] = parentEntity.Index;
+                }
             }
         }
         
-        var eyeAngles = pawn.EyeAngles;
         float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
         float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
         float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
@@ -290,17 +357,20 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         float spawnRightDistOffset = rightDistOffset - 185.0f; 
 
         Vector origin = new Vector(
-            player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * spawnRightDistOffset + upX * upDist,
-            player.PlayerPawn.Value.AbsOrigin.Y + player.PlayerPawn.Value.ViewOffset.Y + fwdY * fwdDist + rightY * spawnRightDistOffset + upY * upDist,
-            player.PlayerPawn.Value.AbsOrigin.Z + player.PlayerPawn.Value.ViewOffset.Z + fwdZ * fwdDist + rightZ * spawnRightDistOffset + upZ * upDist
+            pawnAbsOrigin.X + pawnViewOffset.X + fwdX * fwdDist + rightX * spawnRightDistOffset + upX * upDist,
+            pawnAbsOrigin.Y + pawnViewOffset.Y + fwdY * fwdDist + rightY * spawnRightDistOffset + upY * upDist,
+            pawnAbsOrigin.Z + pawnViewOffset.Z + fwdZ * fwdDist + rightZ * spawnRightDistOffset + upZ * upDist
         );
 
         QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
         wp.DispatchSpawn();
 
-        if (_playerPointOrients.ContainsKey(player.Slot) && _playerPointOrients[player.Slot] != null && _playerPointOrients[player.Slot].IsValid) { wp.AcceptInput("SetParent", _playerPointOrients[player.Slot], null, "!activator"); } else { wp.AcceptInput("SetParent", player.PlayerPawn.Value, null, "!activator"); }
+        if (_playerPointOrients.ContainsKey(player.Slot) && _playerPointOrients[player.Slot] != null && _playerPointOrients[player.Slot].IsValid) { wp.AcceptInput("SetParent", _playerPointOrients[player.Slot], null, "!activator"); } else { wp.AcceptInput("SetParent", parentEntity, null, "!activator"); }
         wp.Teleport(origin, angle, new Vector(0,0,0));
         wp.AcceptInput("SetMessage", wp, wp, message);
+        
+        _hudEntityToPlayerSlot[wp.Index] = player.Slot;
+        
         if (!_allPlayerTexts.ContainsKey(player.Slot)) _allPlayerTexts[player.Slot] = new();
         _allPlayerTexts[player.Slot].Add(wp);
 
@@ -359,6 +429,13 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     // State: SetNextMap
     private readonly Dictionary<int, List<MapItem>> _setnextmapPlayers = new();
     private readonly Dictionary<int, int> _playerSetNextMapPage = new();
+
+    // State: Poll
+    private CounterStrikeSharp.API.Modules.Timers.Timer? _pollTimer;
+    private int _pollYesVotes;
+    private int _pollNoVotes;
+    private bool _pollInProgress;
+    private readonly HashSet<int> _pollVoters = new();
 
     // Logger
     private readonly BlockingCollection<string> _logQueue = new();
@@ -420,6 +497,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         RegisterEventHandler<EventRoundEnd>(OnRoundEnd);
         RegisterEventHandler<EventCsWinPanelMatch>(OnMatchEnd);
         RegisterEventHandler<EventPlayerDisconnect>(OnPlayerDisconnect);
+        RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
+        RegisterEventHandler<EventVoteCast>(OnVoteCast);
 
         RegisterListener<Listeners.OnMapStart>(OnMapStart);
 
@@ -445,6 +524,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _mapInfoTimer = null;
         _centerMessageTimer?.Kill();
         _centerMessageTimer = null;
+        _pollTimer?.Kill();
+        _pollTimer = null;
 
         // Cleanup HUDs - remove entities from the world
         foreach (var kvp in _allPlayerTexts)
@@ -480,12 +561,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _playerForcemapPage.Clear();
         _setnextmapPlayers.Clear();
         _playerSetNextMapPage.Clear();
+        _pollVoters.Clear();
+        _pollInProgress = false;
 
         // Remove listeners and handlers
         DeregisterEventHandler<EventRoundStart>(OnRoundStart);
         DeregisterEventHandler<EventRoundEnd>(OnRoundEnd);
         DeregisterEventHandler<EventCsWinPanelMatch>(OnMatchEnd);
         DeregisterEventHandler<EventPlayerDisconnect>(OnPlayerDisconnect);
+        DeregisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
+        DeregisterEventHandler<EventVoteCast>(OnVoteCast);
 
         RemoveListener<Listeners.OnMapStart>(OnMapStart);
 
@@ -543,6 +628,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _playerPersistentHUDs.Clear();
         _rtvVoters.Clear();
         _playerVotes.Clear();
+        _playerCurrentParent.Clear();
         _activeVoteOptions.Clear();
         _nominatedMaps.Clear();
         _hasNominatedSteamIds.Clear();
@@ -554,6 +640,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _playerForcemapPage.Clear();
         _setnextmapPlayers.Clear();
         _playerSetNextMapPage.Clear();
+        _pollVoters.Clear();
+        _pollInProgress = false;
 
         _reminderTimer?.Kill();
         _reminderTimer = null;
@@ -563,6 +651,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         _centerMessageTimer?.Kill();
         _centerMessageTimer = null;
+        _pollTimer?.Kill();
+        _pollTimer = null;
     }
 
     // --- File Persistence ---
@@ -766,6 +856,14 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         AttemptSetNextMap(player, searchTerm);
     }
 
+    [ConsoleCommand("poll", "Start a custom YES/NO poll (Admin only) (Usage: poll \"Question in quotes\")")]
+    public void OnPollCommand(CCSPlayerController? player, CommandInfo command)
+    {
+        LogRoutine(new { player, command }, null);
+        string argString = command.ArgString;
+        AttemptPoll(player, argString);
+    }
+
     [ConsoleCommand("forcevote", "Force start map vote (Admin only)")]
     public void OnForceVoteCommand(CCSPlayerController? player, CommandInfo command) => AttemptForceVote(player);
     [ConsoleCommand("endvote", "End an active map vote immediately (Admin only)")]
@@ -822,7 +920,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (cmd.Equals("forcevote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptForceVote(p)); return HookResult.Continue; }
         if (cmd.Equals("endvote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptEndVote(p)); return HookResult.Continue; }
         if (cmd.Equals("endwarmup", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptEndWarmup(p)); return HookResult.Continue; }        if (cmd.Equals("votedebug", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptVoteDebug(p)); return HookResult.Continue; }
-        if (cmd.Equals("revote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptRevote(p)); return HookResult.Continue; }
+        if (cmd.Equals("revote", StringComparison.OrdinalIgnoreCase) || cmd.Equals("vote", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => AttemptRevote(p)); return HookResult.Continue; }
         if (cmd.Equals("nextmap", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintNextMap(p)); return HookResult.Continue; }
         if (cmd.Equals("lastmap", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintLastMap(p)); return HookResult.Continue; }
         if (cmd.Equals("recentmaps", StringComparison.OrdinalIgnoreCase)) { Server.NextFrame(() => PrintRecentMaps(p, args)); return HookResult.Continue; }
@@ -842,6 +940,12 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (cmd.Equals("setnextmap", StringComparison.OrdinalIgnoreCase))
         {
             Server.NextFrame(() => AttemptSetNextMap(p, args));
+            return HookResult.Continue;
+        }
+
+        if (cmd.Equals("poll", StringComparison.OrdinalIgnoreCase))
+        {
+            Server.NextFrame(() => AttemptPoll(p, args));
             return HookResult.Continue;
         }
 
@@ -1413,6 +1517,126 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         ClearPlayerHUDMessages(player);
     }
 
+    // --- Poll Logic ---
+    private void AttemptPoll(CCSPlayerController? p, string? args)
+    {
+        LogRoutine(new { player = p?.PlayerName, args }, null);
+        if (p != null && !IsValidPlayer(p)) return;
+        
+        if (p != null && !Config.Admins.Contains(p.SteamID))
+        {
+            p.PrintToChat($" {ColorDefault}You do not have permission to use this command.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(args))
+        {
+            p?.PrintToChat($" {ColorDefault}Usage: poll \"Your question here\"");
+            return;
+        }
+
+        string cleanArg = args.Trim();
+        if (cleanArg.StartsWith("\"") && cleanArg.EndsWith("\"") && cleanArg.Length > 2)
+        {
+            cleanArg = cleanArg.Substring(1, cleanArg.Length - 2);
+        }
+
+        if (_pollInProgress)
+        {
+            p?.PrintToChat($" {ColorDefault}A poll is already in progress.");
+            return;
+        }
+
+        StartPoll(cleanArg);
+    }
+
+    private void StartPoll(string question)
+    {
+        LogRoutine(new { question }, null);
+        _pollInProgress = true;
+        _pollYesVotes = 0;
+        _pollNoVotes = 0;
+        _pollVoters.Clear();
+
+        var voteController = Utilities.FindAllEntitiesByDesignerName<CVoteController>("vote_controller").FirstOrDefault();
+        if (voteController != null)
+        {
+            for (int i = 0; i < 5; i++) voteController.VoteOptionCount[i] = 0;
+            voteController.PotentialVotes = GetHumanPlayers().Count();
+            voteController.ActiveIssueIndex = 2; 
+        }
+
+        foreach (var player in GetHumanPlayers())
+        {
+            UserMessage um = UserMessage.FromPartialName("VoteStart");
+            um.SetInt("team", -1);
+            um.SetInt("player_slot", 99);
+            um.SetInt("vote_type", -1);
+            um.SetString("disp_str", "#SFUI_vote_passed_nextlevel_extend"); // Standard token allowing custom text
+            um.SetString("details_str", question);
+            um.SetString("other_team_str", "");
+            um.SetBool("is_yes_no_vote", true);
+            um.Send(player);
+        }
+
+        Server.PrintToChatAll($" {ColorDefault}A poll has started: {ColorGreen}{question}");
+
+        _pollTimer = AddTimer(20.0f, () => {
+            EndPoll();
+        });
+    }
+
+    private void EndPoll()
+    {
+        if (!_pollInProgress) return;
+        _pollInProgress = false;
+        _pollTimer?.Kill();
+        _pollTimer = null;
+
+        LogRoutine(new { _pollYesVotes, _pollNoVotes }, null);
+
+        bool passed = _pollYesVotes > _pollNoVotes;
+        
+        foreach (var player in GetHumanPlayers())
+        {
+            UserMessage um = UserMessage.FromPartialName(passed ? "VotePass" : "VoteFailed");
+            um.SetInt("team", -1);
+            um.SetInt("vote_type", -1);
+            um.SetString("disp_str", passed ? "#SFUI_vote_passed" : "#SFUI_vote_failed");
+            um.SetString("details_str", "");
+            um.Send(player);
+        }
+
+        var voteController = Utilities.FindAllEntitiesByDesignerName<CVoteController>("vote_controller").FirstOrDefault();
+        if (voteController != null) voteController.ActiveIssueIndex = 0;
+    }
+
+    private HookResult OnVoteCast(EventVoteCast @event, GameEventInfo info)
+    {
+        if (!_pollInProgress) return HookResult.Continue;
+        
+        try 
+        {
+            if (@event.VoteOption == 1) _pollYesVotes++;
+            else if (@event.VoteOption == 2) _pollNoVotes++;
+            
+            var e = new EventVoteChanged(true) {
+                VoteOption1 = (byte)_pollYesVotes,
+                VoteOption2 = (byte)_pollNoVotes,
+                Potentialvotes = (byte)GetHumanPlayers().Count()
+            };
+            e.FireEvent(false);
+
+            if (_pollYesVotes + _pollNoVotes >= GetHumanPlayers().Count())
+            {
+                Server.NextFrame(() => EndPoll());
+            }
+        }
+        catch { }
+
+        return HookResult.Continue;
+    }
+
     // --- EndWarmup Logic ---
     private void AttemptEndWarmup(CCSPlayerController? player)
     {
@@ -1567,27 +1791,48 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         {
             _reminderTimer = AddTimer(Config.ReminderIntervalSeconds, () => {
                 if (_unloaded) return;
-                foreach (var p in GetHumanPlayers().Where(p => !_playerVotes.ContainsKey(p.Slot))) { p.PrintToChat($" {ColorDefault}Reminder: Please vote for the next map!"); PrintVoteOptionsToPlayer(p); }
+                foreach (var p in GetHumanPlayers().Where(p => !_playerVotes.ContainsKey(p.Slot))) { 
+                    p.PrintToChat($" {ColorDefault}Reminder: Please vote for the next map! Type a {ColorGreen}number{ColorDefault} in chat."); 
+                }
             }, TimerFlags.REPEAT);
         }
 
         _centerMessageTimer = AddTimer(1.0f, () => {
             if (_unloaded) return;
+            
+            foreach (var p in GetHumanPlayers().Where(p => !_playerVotes.ContainsKey(p.Slot))) 
+            { 
+                if (_isForceVote && _previousWinningMapId != null)
+                {
+                    int displayTime = Math.Max(0, _forceVoteTimeRemaining);
+                    p.PrintToCenter($"VOTE NOW! Time Remaining: {displayTime}s"); 
+                }
+                else
+                {
+                    p.PrintToCenter("VOTE NOW!"); 
+                }
+                
+                // Track state changes (dead/spectate) to keep HUD visible smoothly without resending full animation
+                if (GetPlayerCamera(p, out var parentEntity, out var pawnAbsOrigin, out var pawnViewOffset, out var eyeAngles))
+                {
+                    if (_playerPointOrients.TryGetValue(p.Slot, out var orient) && orient != null && orient.IsValid)
+                    {
+                        uint currentParentIndex = _playerCurrentParent.GetValueOrDefault(p.Slot, uint.MaxValue);
+                        if (currentParentIndex != parentEntity.Index)
+                        {
+                            orient.AcceptInput("ClearParent");
+                            orient.Teleport(new Vector(pawnAbsOrigin.X, pawnAbsOrigin.Y, pawnAbsOrigin.Z + pawnViewOffset.Z), eyeAngles, null);
+                            orient.AcceptInput("SetParent", parentEntity, null, "!activator");
+                            orient.AcceptInput("SetTarget", parentEntity, null, "!activator");
+                            _playerCurrentParent[p.Slot] = parentEntity.Index;
+                        }
+                    }
+                }
+            }
+            
             if (_isForceVote && _previousWinningMapId != null)
             {
                 _forceVoteTimeRemaining--;
-                int displayTime = Math.Max(0, _forceVoteTimeRemaining);
-                foreach (var p in GetHumanPlayers().Where(p => !_playerVotes.ContainsKey(p.Slot))) 
-                { 
-                    p.PrintToCenter($"VOTE NOW! Time Remaining: {displayTime}s"); 
-                }
-            }
-            else
-            {
-                foreach (var p in GetHumanPlayers().Where(p => !_playerVotes.ContainsKey(p.Slot))) 
-                { 
-                    p.PrintToCenter("VOTE NOW!"); 
-                }
             }
         }, TimerFlags.REPEAT);
     }
@@ -1725,12 +1970,44 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
     }
 
+    private HookResult OnPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
+    {
+        LogRoutine(new { @event, info }, null);
+        if (_voteInProgress && @event.Userid != null)
+        {
+            var player = @event.Userid;
+            if (IsValidPlayer(player) && !_playerVotes.ContainsKey(player.Slot))
+            {
+                // Delay to ensure they're fully spawned and camera is active
+                AddTimer(1.5f, () => {
+                    if (IsValidPlayer(player) && !_playerVotes.ContainsKey(player.Slot) && _voteInProgress)
+                    {
+                        PrintVoteOptionsToPlayer(player);
+                    }
+                });
+            }
+        }
+        return HookResult.Continue;
+    }
+
     private HookResult OnRoundStart(EventRoundStart @event, GameEventInfo info)
     {
         LogRoutine(new { @event, info }, null);
-        if (_voteFinished || _voteInProgress) return HookResult.Continue;
-        var rules = Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules").FirstOrDefault()?.GameRules;
-        if (rules != null && rules.TotalRoundsPlayed + 1 == Config.VoteRound) StartMapVote(isRtv: false);
+        if (_voteFinished) return HookResult.Continue;
+        
+        if (_voteInProgress)
+        {
+            // Resend the message to those who haven't voted
+            foreach (var p in GetHumanPlayers().Where(p => !_playerVotes.ContainsKey(p.Slot)))
+            {
+                PrintVoteOptionsToPlayer(p);
+            }
+        }
+        else
+        {
+            var rules = Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules").FirstOrDefault()?.GameRules;
+            if (rules != null && rules.TotalRoundsPlayed + 1 == Config.VoteRound) StartMapVote(isRtv: false);
+        }
         return HookResult.Continue;
     }
 
@@ -1793,6 +2070,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             {
                 if (orient != null && orient.IsValid) orient.Remove();
                 _playerPointOrients.Remove(player.Slot);
+                _playerCurrentParent.Remove(player.Slot);
             }
         } 
         return HookResult.Continue; 
@@ -1827,21 +2105,14 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     {
         foreach ((CCheckTransmitInfo info, CCSPlayerController? player) in infoList)
         {
-            if (player == null || !player.IsValid || !player.PlayerPawn.IsValid || player.PlayerPawn.Value == null) continue;
-
-            foreach (var kvp in _allPlayerTexts)
+            if (player == null || !player.IsValid) continue;
+            
+            // Loop ONLY through actively spawned HUD entities rather than deeply nesting O(N^2)
+            foreach (var kvp in _hudEntityToPlayerSlot)
             {
-                kvp.Value.RemoveAll(w => w == null || !w.IsValid);
-
-                if (player.Slot != kvp.Key)
+                if (player.Slot != kvp.Value)
                 {
-                    foreach (var wp in kvp.Value)
-                    {
-                        if (wp != null && wp.IsValid)
-                        {
-                            info.TransmitEntities.Remove((int)wp.Index);
-                        }
-                    }
+                    info.TransmitEntities.Remove((int)kvp.Key);
                 }
             }
         }
