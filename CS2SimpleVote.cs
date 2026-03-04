@@ -109,6 +109,13 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private readonly Dictionary<int, string> _activeVoteOptions = new();
     private readonly Dictionary<int, int> _playerVotes = new();
 
+    // State: Poll
+    private CVoteController? _pollVoteController;
+    private bool _pollActive = false;
+    private int _pollVoterCount = 0;
+    private CounterStrikeSharp.API.Modules.Timers.Timer? _pollTimer;
+    private readonly HashSet<int> _pollPlayerVotes = new();
+
     // State: Nomination
     private readonly List<MapItem> _nominatedMaps = new();
     private readonly HashSet<ulong> _hasNominatedSteamIds = new();
@@ -228,6 +235,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         RegisterEventHandler<EventCsWinPanelMatch>(OnMatchEnd);
         RegisterEventHandler<EventPlayerDisconnect>(OnPlayerDisconnect);
         RegisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
+        RegisterEventHandler<EventVoteCast>(OnPollVoteCast);
 
         RegisterListener<Listeners.OnMapStart>(OnMapStart);
 
@@ -276,6 +284,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         DeregisterEventHandler<EventCsWinPanelMatch>(OnMatchEnd);
         DeregisterEventHandler<EventPlayerDisconnect>(OnPlayerDisconnect);
         DeregisterEventHandler<EventPlayerSpawn>(OnPlayerSpawn);
+        DeregisterEventHandler<EventVoteCast>(OnPollVoteCast);
 
         RemoveListener<Listeners.OnMapStart>(OnMapStart);
 
@@ -567,6 +576,25 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     [ConsoleCommand("votedebug", "Show debug info (Admin only)")]
     public void OnVoteDebugCommand(CCSPlayerController? player, CommandInfo command) => AttemptVoteDebug(player);
 
+    [ConsoleCommand("poll", "Start a Panorama poll (Admin only) (Usage: poll [message])")]
+    public void OnPollCommand(CCSPlayerController? player, CommandInfo command)
+    {
+        if (player == null || !Config.Admins.Contains(player.SteamID))
+        {
+            player?.PrintToChat($" {ColorDefault}You do not have permission to use this command.");
+            return;
+        }
+
+        string msg = command.ArgString.Trim();
+        if (string.IsNullOrEmpty(msg))
+        {
+            player.PrintToChat($" {ColorDefault}Usage: css_poll \"message to display\"");
+            return;
+        }
+
+        StartPoll(player, msg);
+    }
+
     private HookResult OnPauseCommand(CCSPlayerController? player, CommandInfo info)
     {
         if (player == null || !player.IsValid) return HookResult.Continue;
@@ -646,6 +674,129 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (!_voteInProgress) { player!.PrintToChat($" {ColorDefault}There is no vote currently in progress."); return; }
         player!.PrintToChat($" {ColorDefault}Redisplaying vote options. You may recast your vote.");
         PrintVoteOptionsToPlayer(player);
+    }
+
+    private void StartPoll(CCSPlayerController planner, string message)
+    {
+        if (_pollActive)
+        {
+            planner.PrintToChat($" {ColorDefault}A poll is already active.");
+            return;
+        }
+
+        var controllers = Utilities.FindAllEntitiesByDesignerName<CVoteController>("vote_controller");
+        if (!controllers.Any())
+        {
+            planner.PrintToChat($" {ColorDefault}Could not find vote_controller entity. Try again later or on a new map.");
+            return;
+        }
+        
+        _pollVoteController = controllers.Last();
+        _pollActive = true;
+        _pollPlayerVotes.Clear();
+        
+        var humans = GetHumanPlayers().ToList();
+        _pollVoterCount = humans.Count;
+
+        for (int i = 0; i < _pollVoteController.VotesCast.Length; i++) _pollVoteController.VotesCast[i] = 5; 
+        for (int i = 0; i < _pollVoteController.VoteOptionCount.Length; i++) _pollVoteController.VoteOptionCount[i] = 0;
+
+        _pollVoteController.PotentialVotes = _pollVoterCount;
+        _pollVoteController.ActiveIssueIndex = 2; // custom issue
+
+        UpdatePollVoteCounts();
+
+        UserMessage um = UserMessage.FromPartialName("VoteStart");
+        um.SetInt("team", -1);
+        um.SetInt("player_slot", planner.Slot);
+        um.SetInt("vote_type", -1);
+        um.SetString("disp_str", "Poll:");
+        um.SetString("details_str", message);
+        um.SetBool("is_yes_no_vote", true);
+        
+        um.Send(new RecipientFilter(humans.ToArray()));
+
+        _pollTimer?.Kill();
+        _pollTimer = AddTimer(20.0f, () => EndPoll(false));
+    }
+
+    private void UpdatePollVoteCounts()
+    {
+        if (_pollVoteController == null) return;
+        new EventVoteChanged(true)
+        {
+            VoteOption1 = _pollVoteController.VoteOptionCount[0],
+            VoteOption2 = _pollVoteController.VoteOptionCount[1],
+            VoteOption3 = _pollVoteController.VoteOptionCount[2],
+            VoteOption4 = _pollVoteController.VoteOptionCount[3],
+            VoteOption5 = _pollVoteController.VoteOptionCount[4],
+            Potentialvotes = _pollVoterCount
+        }.FireEvent(false);
+    }
+
+    private HookResult OnPollVoteCast(EventVoteCast @event, GameEventInfo info)
+    {
+        if (!_pollActive || _pollVoteController == null) return HookResult.Continue;
+        var player = @event.Userid;
+        if (player == null || !player.IsValid) return HookResult.Continue;
+        
+        int voteOption = @event.VoteOption;
+        if (_pollPlayerVotes.Add(player.Slot))
+        {
+            UpdatePollVoteCounts();
+            
+            if (_pollPlayerVotes.Count >= _pollVoterCount)
+            {
+                Server.NextFrame(() => EndPoll(false));
+            }
+        }
+
+        return HookResult.Continue;
+    }
+
+    private void EndPoll(bool cancelled)
+    {
+        if (!_pollActive || _pollVoteController == null) return;
+        _pollActive = false;
+        _pollTimer?.Kill();
+        _pollTimer = null;
+
+        int yesVotes = _pollVoteController.VoteOptionCount[0];
+        int noVotes = _pollVoteController.VoteOptionCount[1];
+        
+        if (cancelled)
+        {
+            UserMessage umF = UserMessage.FromPartialName("VoteFailed"); 
+            umF.SetInt("team", -1);
+            umF.SetInt("reason", 2); 
+            umF.Send(new RecipientFilter(GetHumanPlayers().ToArray()));
+            
+            _pollVoteController.ActiveIssueIndex = -1;
+            Server.PrintToChatAll($" {ColorDefault}Poll was cancelled.");
+            return;
+        }
+
+        bool passed = yesVotes > noVotes;
+        
+        if (passed)
+        {
+            UserMessage umP = UserMessage.FromPartialName("VotePass"); 
+            umP.SetInt("team", -1);
+            umP.SetInt("vote_type", 2);
+            umP.SetString("disp_str", "#SFUI_vote_passed_panorama_vote");
+            umP.SetString("details_str", "Poll Passed!");
+            umP.Send(new RecipientFilter(GetHumanPlayers().ToArray()));
+        }
+        else
+        {
+            UserMessage umF = UserMessage.FromPartialName("VoteFailed"); 
+            umF.SetInt("team", -1);
+            umF.SetInt("reason", 0); 
+            umF.Send(new RecipientFilter(GetHumanPlayers().ToArray()));
+        }
+
+        Server.PrintToChatAll($" {ColorDefault}Poll Results: {ColorGreen}{yesVotes} Yes {ColorDefault}/ {ColorRed}{noVotes} No{ColorDefault}. Poll " + (passed ? "Passed!" : "Failed!"));
+        _pollVoteController.ActiveIssueIndex = -1;
     }
 
     private void AttemptVoteDebug(CCSPlayerController? player)
@@ -928,7 +1079,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
           if (!_nominatingPlayers.TryGetValue(player.Slot, out var maps)) return;
           int offset = _playerNominationPage.GetValueOrDefault(player.Slot, 0);
 
-          int perPage = Config.NominatePerPage;
+          int perPage = 6;
           int startIndex = offset;
           int endIndex = Math.Min(startIndex + perPage, maps.Count);
           
@@ -941,18 +1092,21 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
           }
 
           sb.Append("<div style='text-align: left;'>");
-          string titleText = "--- NOMINATE MAP ---";
-          sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText} (9=Next, 0=Prev, 'cancel'=Exit)</font><font class='fontSize-sm stratum-font'><br>");
+          string titleText = "NOMINATE MAP";
+          sb.Append($"<b><font color='yellow'>{titleText}</font></b><br>");
 
           for (int i = startIndex; i < endIndex; i++) { 
               int displayNum = (i - startIndex) + 1; 
-              sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
+              sb.Append($"<font color='green'>[{displayNum}]</font> {maps[i].Name}<br>"); 
           }
-          if (maps.Count > perPage)
-          {
-              sb.Append($"<font color='#aaaaaa'>[9] Next page  |  [0] Prev page</font><br>");
-          }
-          sb.Append("</font></div>");
+          
+          var pageOptions = new List<string>();
+          if (offset > 0) pageOptions.Add("<font color='yellow'>[8] &#60;</font> Prev");
+          pageOptions.Add("<font color='red'>[0] X</font> Exit");
+          if (startIndex + perPage < maps.Count) pageOptions.Add("<font color='yellow'>[9] ></font> Next");
+          
+          sb.Append(string.Join(" | ", pageOptions) + "<br>");
+          sb.Append("</div>");
           
           player.PrintToCenterHtml(sb.ToString(), 1);
       }
@@ -960,18 +1114,18 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
       private HookResult HandleNominationInput(CCSPlayerController player, string input)
       {
           LogRoutine(new { player, input }, null);
-          if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseNominationMenu(player); player.PrintToChat($" {ColorDefault}Nomination cancelled."); return HookResult.Handled; }
+          if (input.Equals("0", StringComparison.OrdinalIgnoreCase) || input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseNominationMenu(player); player.PrintToChat($" {ColorDefault}Nomination cancelled."); return HookResult.Handled; }
           
           if (!_nominatingPlayers.TryGetValue(player.Slot, out var maps)) return HookResult.Continue;
           int offset = _playerNominationPage.GetValueOrDefault(player.Slot, 0);
-          int perPage = Config.NominatePerPage;
+          int perPage = 6;
 
-          if (input == "9") 
+          if (input == "9")
           {
               if (offset + perPage < maps.Count) _playerNominationPage[player.Slot] = offset + perPage;
               return HookResult.Handled;
           }
-          if (input == "0") 
+          if (input == "8")
           {
               if (offset - perPage >= 0) _playerNominationPage[player.Slot] = offset - perPage;
               return HookResult.Handled;
@@ -1084,18 +1238,21 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
 
         sb.Append("<div style='text-align: left;'>");
-        string titleText = "--- FORCEMAP ---";
-        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText} (9=Next, 0=Prev, 'cancel'=Exit)</font><font class='fontSize-sm stratum-font'><br>");
+        string titleText = "FORCEMAP";
+        sb.Append($"<b><font color='yellow'>{titleText}</font></b><br>");
 
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
-            sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
+            sb.Append($"<font color='green'>[{displayNum}]</font> {maps[i].Name}<br>"); 
         }
-        if (maps.Count > perPage)
-        {
-            sb.Append($"<font color='#aaaaaa'>[9] Next page  |  [0] Prev page</font><br>");
-        }
-        sb.Append("</font></div>");
+
+        var pageOptions = new List<string>();
+        if (offset > 0) pageOptions.Add("<font color='yellow'>[8] &#60;</font> Prev");
+        pageOptions.Add("<font color='red'>[0] X</font> Exit");
+        if (startIndex + perPage < maps.Count) pageOptions.Add("<font color='yellow'>[9] ></font> Next");
+        
+        sb.Append(string.Join(" | ", pageOptions) + "<br>");
+        sb.Append("</div>");
         
         player.PrintToCenterHtml(sb.ToString(), 1);
     }
@@ -1103,20 +1260,20 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private HookResult HandleForcemapInput(CCSPlayerController player, string input)
     {
         LogRoutine(new { player, input }, null);
-        if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseForcemapMenu(player); player.PrintToChat($" {ColorDefault}Forcemap cancelled."); return HookResult.Handled; }
+        if (input.Equals("0", StringComparison.OrdinalIgnoreCase) || input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseForcemapMenu(player); player.PrintToChat($" {ColorDefault}Forcemap cancelled."); return HookResult.Handled; }
         
         if (!_forcemapPlayers.TryGetValue(player.Slot, out var maps)) return HookResult.Continue;
         int offset = _playerForcemapPage.GetValueOrDefault(player.Slot, 0);
-        int perPage = 8;
+        int perPage = 6;
 
-        if (input == "9") 
+        if (input == "9")
         {
             if (offset + perPage < maps.Count) _playerForcemapPage[player.Slot] = offset + perPage;
             return HookResult.Handled;
         }
-        if (input == "0") 
+        if (input == "8")
         {
-            if (offset - perPage >= 0) _playerForcemapPage[player.Slot] = offset - perPage;
+            if (offset - perPage >= 0) offset -= perPage;
             return HookResult.Handled;
         }
 
@@ -1195,18 +1352,21 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
 
         sb.Append("<div style='text-align: left;'>");
-        string titleText = "--- SETNEXTMAP ---";
-        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText} (9=Next, 0=Prev, 'cancel'=Exit)</font><font class='fontSize-sm stratum-font'><br>");
+        string titleText = "SETNEXTMAP";
+        sb.Append($"<b><font color='yellow'>{titleText}</font></b><br>");
 
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
-            sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
+            sb.Append($"<font color='green'>[{displayNum}]</font> {maps[i].Name}<br>"); 
         }
-        if (maps.Count > perPage)
-        {
-            sb.Append($"<font color='#aaaaaa'>[9] Next page  |  [0] Prev page</font><br>");
-        }
-        sb.Append("</font></div>");
+        
+        var pageOptions = new List<string>();
+        if (offset > 0) pageOptions.Add("<font color='yellow'>[8] &#60;</font> Prev");
+        pageOptions.Add("<font color='red'>[0] X</font> Exit");
+        if (startIndex + perPage < maps.Count) pageOptions.Add("<font color='yellow'>[9] ></font> Next");
+        
+        sb.Append(string.Join(" | ", pageOptions) + "<br>");
+        sb.Append("</div>");
         
         player.PrintToCenterHtml(sb.ToString(), 1);
     }
@@ -1214,20 +1374,20 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private HookResult HandleSetNextMapInput(CCSPlayerController player, string input)
     {
         LogRoutine(new { player, input }, null);
-        if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseSetNextMapMenu(player); player.PrintToChat($" {ColorDefault}SetNextMap cancelled."); return HookResult.Handled; }
+        if (input.Equals("0", StringComparison.OrdinalIgnoreCase) || input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseSetNextMapMenu(player); player.PrintToChat($" {ColorDefault}SetNextMap cancelled."); return HookResult.Handled; }
         
         if (!_setnextmapPlayers.TryGetValue(player.Slot, out var maps)) return HookResult.Continue;
         int offset = _playerSetNextMapPage.GetValueOrDefault(player.Slot, 0);
-        int perPage = 8;
-        
-        if (input == "9") 
+        int perPage = 6;
+
+        if (input == "9")
         {
             if (offset + perPage < maps.Count) _playerSetNextMapPage[player.Slot] = offset + perPage;
             return HookResult.Handled;
         }
-        if (input == "0") 
+        if (input == "8")
         {
-            if (offset - perPage >= 0) _playerSetNextMapPage[player.Slot] = offset - perPage;
+            if (offset - perPage >= 0) offset -= perPage;
             return HookResult.Handled;
         }
 
@@ -1537,21 +1697,21 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
 
         sb.Append("<div style='text-align: left;'>");
-        string titleText = "--- VOTE MAP ---";
+        string titleText = "VOTE MAP";
         if (_voteInProgress && _forceVoteTimeRemaining > 0)
         {
             int displayTime = Math.Max(0, _forceVoteTimeRemaining);
-            titleText = $"--- VOTE MAP ({displayTime}s) ---";
+            titleText = $"VOTE MAP ({displayTime}s)";
         }
 
-        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
+        sb.Append($"<b><font color='yellow'>{titleText}</font></b><br>");
 
         foreach (var kvp in _activeVoteOptions) 
         {
-            sb.Append($"<font color='#ffffff'>[{kvp.Key}]</font> <font color='#90ee90'>{GetMapName(kvp.Value)}</font><br>");
+            sb.Append($"<font color='green'>[{kvp.Key}]</font> {GetMapName(kvp.Value)}<br>");
         }
 
-        sb.Append("</font></div>");
+        sb.Append("</div>");
 
         player.PrintToCenterHtml(sb.ToString(), 1);
     }
