@@ -163,11 +163,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         int lineIndex = _playerCurrentIndex[player.Slot];
         _playerActiveCount[player.Slot]++;
 
-        // Bring it closer and scale proportionally so it appears the same size and is positioned right
-        float fwdDist = 50.0f; 
-        float rightDistOffset = 18.0f; 
-        float baseUpDist = 5.0f;
-        float lineSpacing = 3.5f;
+        // Reverted to original distance and sizes for crisp font resolution
+        float fwdDist = 120.0f;
+        float rightDistOffset = 45.0f;
+        float baseUpDist = 12.0f;
+        float lineSpacing = 8.0f;
         float upDist = baseUpDist - (lineIndex * lineSpacing);
 
         var wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
@@ -175,7 +175,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         wp.Enabled = true;
         wp.MessageText = "";
-        wp.FontSize = 7;
+        wp.FontSize = 14;
         wp.FontName = "Arial";
         wp.Fullbright = true;
         wp.WorldUnitsPerPx = 0.25f;
