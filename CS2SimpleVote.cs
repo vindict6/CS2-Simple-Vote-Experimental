@@ -49,16 +49,167 @@ public class MapItem
 // --- Main Plugin ---
 public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 {
-
-    // Floating HUD state
-    private Dictionary<int, int> _playerActiveCount = new();
-    private Dictionary<int, int> _playerCurrentIndex = new();
-
     public override string ModuleName => "CS2SimpleVote";
     public override string ModuleVersion => "1.1.2";
 
     private const string ColorDefault = "\x01";
     private const string ColorGreen = "\x04";
+
+    // --- Floating Text Dependencies ---
+    private readonly Dictionary<int, int> _playerActiveCount = new();
+    private readonly Dictionary<int, int> _playerCurrentIndex = new();
+    
+    private Dictionary<char, System.Drawing.Color> ChatColors = new Dictionary<char, System.Drawing.Color>
+    {
+        { '\x01', System.Drawing.Color.White },
+        { '\x02', System.Drawing.Color.DarkRed },
+        { '\x03', System.Drawing.Color.MediumPurple },
+        { '\x04', System.Drawing.Color.LimeGreen },
+        { '\x05', System.Drawing.Color.LightGreen },
+        { '\x06', System.Drawing.Color.Lime },
+        { '\x07', System.Drawing.Color.Red },
+        { '\x08', System.Drawing.Color.Gray },
+        { '\x09', System.Drawing.Color.Yellow },
+        { '\x0A', System.Drawing.Color.Orange },
+        { '\x0B', System.Drawing.Color.LightSkyBlue },
+        { '\x0C', System.Drawing.Color.DodgerBlue },
+        { '\x0D', System.Drawing.Color.Blue },
+        { '\x0E', System.Drawing.Color.Purple },
+        { '\x0F', System.Drawing.Color.LightCoral },
+        { '\x10', System.Drawing.Color.Goldenrod }
+    };
+
+    private void SendChatAllAndFloatMessage(string message)
+    {
+        foreach (var p in Utilities.GetPlayers().Where(x => x is { IsValid: true, IsBot: false }))
+        {
+            CreateFloatingHUDMessages(p, message);
+        }
+    }
+
+    private void SendChatAndFloatMessage(CCSPlayerController player, string message)
+    {
+        if (player is { IsValid: true, IsBot: false })
+        {
+            CreateFloatingHUDMessages(player, message);
+        }
+    }
+
+    private void CreateFloatingHUDMessages(CCSPlayerController player, string message)
+    {
+        message = message.Trim();
+        System.Drawing.Color currentColor = System.Drawing.Color.White;
+
+        if (player.PlayerPawn.Value == null || player.PlayerPawn.Value.AbsOrigin == null) return;
+
+        var eyeAngles = player.PlayerPawn.Value.EyeAngles;
+        float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
+        float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
+        float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
+        float fwdY = (float)(Math.Cos(pitch) * Math.Sin(yaw));
+        float fwdZ = (float)(-Math.Sin(pitch));
+        float rightX = (float)(-Math.Sin(yaw));
+        float rightY = (float)(Math.Cos(yaw));
+        float rightZ = 0.0f;
+        float upX = fwdY * rightZ - fwdZ * rightY;
+        float upY = fwdZ * rightX - fwdX * rightZ;
+        float upZ = fwdX * rightY - fwdY * rightX;
+
+        // --- CASCADING LOGIC ---
+        if (!_playerActiveCount.ContainsKey(player.Slot)) _playerActiveCount[player.Slot] = 0;
+        if (!_playerCurrentIndex.ContainsKey(player.Slot)) _playerCurrentIndex[player.Slot] = 0;
+
+        if (_playerActiveCount[player.Slot] == 0) _playerCurrentIndex[player.Slot] = 0;
+        else _playerCurrentIndex[player.Slot] = (_playerCurrentIndex[player.Slot] + 1) % 10;
+
+        int lineIndex = _playerCurrentIndex[player.Slot];
+        _playerActiveCount[player.Slot]++;
+
+        float fwdDist = 120.0f;
+        float rightDistOffset = 20.0f; 
+        float baseUpDist = 12.0f; 
+        float lineSpacing = 3.5f; 
+        float upDist = baseUpDist - (lineIndex * lineSpacing); 
+        float lastWidth = 0.0f;
+
+        List<CPointWorldText> entities = new();
+
+        var parts = System.Text.RegularExpressions.Regex.Split(message, @"([\x01-\x10])");
+
+        foreach (var part in parts)
+        {
+            if (string.IsNullOrEmpty(part)) continue;
+            
+            if (part.Length == 1 && part[0] >= '\x01' && part[0] <= '\x10')
+            {
+                if (ChatColors.TryGetValue(part[0], out var c)) currentColor = c;
+                continue;
+            }
+
+            var wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
+            if (wp == null) continue;
+
+            float rightDist = rightDistOffset + lastWidth;
+            wp.Enabled = true;
+            wp.MessageText = ""; 
+            wp.FontSize = 18;
+            wp.FontName = "Arial";
+            wp.Fullbright = true;
+            wp.WorldUnitsPerPx = 0.25f; // THIS MAKES IT VISIBLE!
+            wp.Color = currentColor;
+            wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
+            wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
+            wp.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
+            wp.DrawBackground = true;
+            wp.BackgroundBorderWidth = 0.2f;
+            wp.BackgroundBorderHeight = 0.2f;
+
+            Vector origin = new Vector(
+                player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * rightDist + upX * upDist,
+                player.PlayerPawn.Value.AbsOrigin.Y + player.PlayerPawn.Value.ViewOffset.Y + fwdY * fwdDist + rightY * rightDist + upY * upDist,
+                player.PlayerPawn.Value.AbsOrigin.Z + player.PlayerPawn.Value.ViewOffset.Z + fwdZ * fwdDist + rightZ * rightDist + upZ * upDist
+            );
+
+            wp.Teleport(origin, new QAngle(eyeAngles.X, eyeAngles.Y + 180.0f, eyeAngles.Z), new Vector(0,0,0));
+            wp.DispatchSpawn();
+            
+            // Required Dispatch inputs
+            wp.AcceptInput("SetParent", player.PlayerPawn.Value, null, "!activator");
+            wp.AcceptInput("SetMessage", wp, wp, part);
+            
+            entities.Add(wp);
+            lastWidth += part.Length * 2.5f; 
+        }
+
+        AddTimer(5.0f, () => 
+        {
+            // Fading out
+            for (float f = 1.0f; f <= 5.0f; f++)
+            {
+                float fadeStep = f;
+                AddTimer(f * (2.0f / 5.0f), () => 
+                {
+                    foreach (var en in entities)
+                    {
+                        if (en != null && en.IsValid)
+                        {
+                            en.Color = System.Drawing.Color.FromArgb((int)(255 * (1.0f - fadeStep / 5.0f)), en.Color.R, en.Color.G, en.Color.B);
+                            en.AcceptInput("SetMessage", en, en, en.MessageText);
+                        }
+                    }
+                });
+            }
+            AddTimer(2.0f, () => 
+            {
+                foreach (var en in entities) { if (en != null && en.IsValid) en.Remove(); }
+                
+                if (_playerActiveCount.ContainsKey(player.Slot))
+                {
+                    _playerActiveCount[player.Slot] = System.Math.Max(0, _playerActiveCount[player.Slot] - 1);
+                }
+            });
+        });
+    }
 
     public VoteConfig Config { get; set; } = new();
 
@@ -1452,156 +1603,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         
         try { _logQueue.Add(sb.ToString()); } catch { /* Queue might be closed */ }
     }
-
-    // Floating HUD Methods
-    public void SendChatAllAndFloatMessage(string message)
-    {
-        foreach (var p in Utilities.GetPlayers())
-        {
-            if (IsValidPlayer(p)) CreateFloatingHUDMessages(p, message);
-        }
-    }
-
-    public void SendChatAndFloatMessage(CCSPlayerController player, string message)
-    {
-        if (IsValidPlayer(player)) CreateFloatingHUDMessages(player, message);
-    }
-
-    private Dictionary<string, System.Drawing.Color> ChatColors = new()
-    {
-        { "{ColorDefault}", System.Drawing.Color.White },
-        { "{ColorRed}", System.Drawing.Color.Red },
-        { "{ColorGreen}", System.Drawing.Color.LimeGreen },
-        { "{ColorLightYellow}", System.Drawing.Color.LightGoldenrodYellow },
-        { "{ColorBlue}", System.Drawing.Color.DodgerBlue },
-        { "{ColorYellow}", System.Drawing.Color.Yellow },
-        { "{ColorLightBlue}", System.Drawing.Color.LightSkyBlue },
-        { "{ColorPurple}", System.Drawing.Color.MediumPurple },
-        { "{ColorGrey}", System.Drawing.Color.Gray },
-        { "{ColorOrange}", System.Drawing.Color.Orange }
-    };
-
-    
-    private void CreateFloatingHUDMessages(CCSPlayerController player, string message)
-    {
-        message = message.Trim();
-        var parts = System.Text.RegularExpressions.Regex.Split(message, @"(\{([A-Za-z]+)\})");
-        
-        System.Drawing.Color currentColor = System.Drawing.Color.White;
-
-        if (player.PlayerPawn.Value == null || player.PlayerPawn.Value.AbsOrigin == null) return;
-
-        var eyeAngles = player.PlayerPawn.Value.EyeAngles;
-        float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
-        float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
-        float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
-        float fwdY = (float)(Math.Cos(pitch) * Math.Sin(yaw));
-        float fwdZ = (float)(-Math.Sin(pitch));
-        float rightX = (float)(-Math.Sin(yaw));
-        float rightY = (float)(Math.Cos(yaw));
-        float rightZ = 0.0f;
-        float upX = fwdY * rightZ - fwdZ * rightY;
-        float upY = fwdZ * rightX - fwdX * rightZ;
-        float upZ = fwdX * rightY - fwdY * rightX;
-
-        // --- CASCADING LOGIC ---
-        if (!_playerActiveCount.ContainsKey(player.Slot)) _playerActiveCount[player.Slot] = 0;
-        if (!_playerCurrentIndex.ContainsKey(player.Slot)) _playerCurrentIndex[player.Slot] = 0;
-
-        if (_playerActiveCount[player.Slot] == 0)
-        {
-            _playerCurrentIndex[player.Slot] = 0;
-        }
-        else
-        {
-            _playerCurrentIndex[player.Slot] = (_playerCurrentIndex[player.Slot] + 1) % 10; // max 10 lines
-        }
-
-        int lineIndex = _playerCurrentIndex[player.Slot];
-        _playerActiveCount[player.Slot]++;
-
-        float fwdDist = 120.0f;
-        float rightDistOffset = 20.0f; // Shift to the right
-        
-        float baseUpDist = 12.0f; // "Shift it up"
-        float lineSpacing = 3.5f; 
-        float upDist = baseUpDist - (lineIndex * lineSpacing); // "Cascading, latest messages at the bottom"
-        // -----------------------
-
-        float lastWidth = 0.0f;
-
-        List<CPointWorldText> entities = new();
-
-        foreach (var part in parts)
-        {
-            if (string.IsNullOrEmpty(part)) continue;
-            
-            // It's a color tag
-            if (part.StartsWith("{") && part.EndsWith("}"))
-            {
-                if (ChatColors.TryGetValue(part, out var c)) currentColor = c;
-                continue;
-            }
-
-            var wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
-            if (wp == null) continue;
-
-            float rightDist = rightDistOffset + lastWidth;
-            wp.MessageText = part;
-            wp.Enabled = true;
-            wp.FontSize = 18;
-            wp.FontName = "Arial";
-            wp.Fullbright = true;
-            wp.Color = currentColor;
-            wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
-            wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
-            wp.DrawBackground = true;
-            wp.BackgroundBorderWidth = 0.2f;
-            wp.BackgroundBorderHeight = 0.2f;
-
-            Vector origin = new Vector(
-                player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * rightDist + upX * upDist,
-                player.PlayerPawn.Value.AbsOrigin.Y + player.PlayerPawn.Value.ViewOffset.Y + fwdY * fwdDist + rightY * rightDist + upY * upDist,
-                player.PlayerPawn.Value.AbsOrigin.Z + player.PlayerPawn.Value.ViewOffset.Z + fwdZ * fwdDist + rightZ * rightDist + upZ * upDist
-            );
-
-            wp.Teleport(origin, new QAngle(eyeAngles.X, eyeAngles.Y + 180.0f, eyeAngles.Z), new Vector(0,0,0));
-            wp.DispatchSpawn();
-            wp.AcceptInput("SetParent", player.PlayerPawn.Value, null, "!activator");
-            wp.AcceptInput("SetMessage", player.PlayerPawn.Value, null, "!activator");
-            
-            entities.Add(wp);
-            // approximate character width spacing out the entities
-            lastWidth += part.Length * 3.5f; 
-        }
-
-        AddTimer(5.0f, () => 
-        {
-            for (float f = 1.0f; f <= 5.0f; f++)
-            {
-                float fadeStep = f;
-                AddTimer(f * (2.0f / 5.0f), () => 
-                {
-                    foreach (var en in entities)
-                    {
-                        if (en != null && en.IsValid)
-                        {
-                            en.Color = System.Drawing.Color.FromArgb((int)(255 * (1.0f - fadeStep / 5.0f)), en.Color.R, en.Color.G, en.Color.B);
-                            en.AcceptInput("SetMessage", player.PlayerPawn.Value, null, "!activator");
-                        }
-                    }
-                });
-            }
-            AddTimer(2.0f, () => 
-            {
-                foreach (var en in entities) { if (en != null && en.IsValid) en.Remove(); }
-                
-                // Decrement the active stack queue safely
-                if (_playerActiveCount.ContainsKey(player.Slot))
-                {
-                    _playerActiveCount[player.Slot] = System.Math.Max(0, _playerActiveCount[player.Slot] - 1);
-                }
-            });
-        });
-    }
 }
+
+
+
+
+
