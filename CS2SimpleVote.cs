@@ -148,16 +148,21 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         player.PrintToCenterHtml("");
     }
 
-    private void MasterHudTick()
+    private void LogicTick()
+    {
+        if (_unloaded) return;
+
+        if (_voteInProgress && _forceVoteTimeRemaining > 0)
+        {
+            _forceVoteTimeRemaining--;
+        }
+    }
+
+    private void OnPluginTick()
     {
         try 
         {
             if (_unloaded) return;
-
-            if (_voteInProgress && _forceVoteTimeRemaining > 0)
-            {
-                _forceVoteTimeRemaining--;
-            }
 
             foreach (var p in GetHumanPlayers())
             {
@@ -173,7 +178,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         } 
         catch (Exception ex) 
         {
-            Console.WriteLine($"[CS2SimpleVote] Exception in MasterHudTick: {ex.Message}");
+            Console.WriteLine($"[CS2SimpleVote] Exception in OnPluginTick: {ex.Message}");
         }
     }
 
@@ -186,7 +191,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     public override void Load(bool hotReload)
     {
-        _masterHudTimer = AddTimer(1.0f, MasterHudTick, TimerFlags.REPEAT);
+        _masterHudTimer = AddTimer(1.0f, LogicTick, TimerFlags.REPEAT);
+        RegisterListener<Listeners.OnTick>(OnPluginTick);
         
         // Construct the path to the config folder manually:
         // ModuleDirectory is ".../plugins/CS2SimpleVote"
@@ -278,6 +284,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         RemoveCommandListener("pause", OnPauseCommand, HookMode.Pre);
         RemoveCommandListener("setpause", OnPauseCommand, HookMode.Pre);
 
+        RemoveListener<Listeners.OnTick>(OnPluginTick);
+
         // Cancel background task
         _cts.Cancel();
         _cts.Dispose();
@@ -291,7 +299,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         LogRoutine(new { mapName }, null);
         
         _masterHudTimer?.Kill();
-        _masterHudTimer = AddTimer(1.0f, MasterHudTick, TimerFlags.REPEAT);
+        _masterHudTimer = AddTimer(1.0f, LogicTick, TimerFlags.REPEAT);
         
         ResetState();
         Server.ExecuteCommand("mp_endmatch_votenextmap 0");
@@ -929,14 +937,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
         
         var sb = new StringBuilder();
-        sb.Append($"<font color='#ffffff'>Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):</font><br>");
+        string titleText = $"Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):";
+        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
             sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
         }
-        if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font>");
+        if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font><br>");
+        sb.Append("</font>");
         
-        player.PrintToCenterHtml(sb.ToString(), 2);
+        player.PrintToCenterHtml(sb.ToString(), 1);
     }
 
     private HookResult HandleNominationInput(CCSPlayerController player, string input)
@@ -1046,14 +1056,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
         
         var sb = new StringBuilder();
-        sb.Append($"<font color='#ffffff'>[Forcemap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):</font><br>");
+        string titleText = $"[Forcemap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):";
+        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
             sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
         }
-        if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font>");
+        if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font><br>");
+        sb.Append("</font>");
         
-        player.PrintToCenterHtml(sb.ToString(), 2);
+        player.PrintToCenterHtml(sb.ToString(), 1);
     }
 
     private HookResult HandleForcemapInput(CCSPlayerController player, string input)
@@ -1131,14 +1143,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
         
         var sb = new StringBuilder();
-        sb.Append($"<font color='#ffffff'>[SetNextMap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):</font><br>");
+        string titleText = $"[SetNextMap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):";
+        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
             sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
         }
-        if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font>");
+        if (totalPages > 1) sb.Append($"<font color='#90ee90'>[0]</font> <font color='#ffffff'>Next Page</font><br>");
+        sb.Append("</font>");
         
-        player.PrintToCenterHtml(sb.ToString(), 2);
+        player.PrintToCenterHtml(sb.ToString(), 1);
     }
 
     private HookResult HandleSetNextMapInput(CCSPlayerController player, string input)
@@ -1428,22 +1442,23 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private void PrintVoteOptionsToPlayer(CCSPlayerController player) { 
         var sb = new StringBuilder();
         
+        string titleText = "--- Type a number in chat to vote ---";
         if (_voteInProgress && _forceVoteTimeRemaining > 0)
         {
             int displayTime = Math.Max(0, _forceVoteTimeRemaining);
-            sb.Append($"<font color='#ffffff'>--- </font><font color='#90ee90'>Type a number in chat to vote ({displayTime}s)</font><font color='#ffffff'> ---</font><br>");
+            titleText = $"--- Type a number in chat to vote ({displayTime}s) ---";
         }
-        else if (_voteInProgress)
-        {
-            sb.Append($"<font color='#ffffff'>--- </font><font color='#90ee90'>Type a number in chat to vote</font><font color='#ffffff'> ---</font><br>");
-        }
+
+        sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
 
         foreach (var kvp in _activeVoteOptions) 
         {
             sb.Append($"<font color='#ffffff'>[{kvp.Key}]</font> <font color='#90ee90'>{GetMapName(kvp.Value)}</font><br>");
         }
 
-        player.PrintToCenterHtml(sb.ToString(), 2);
+        sb.Append("</font>");
+
+        player.PrintToCenterHtml(sb.ToString(), 1);
     }
     private string GetMapName(string mapId) => _availableMaps.FirstOrDefault(m => m.Id == mapId)?.Name ?? "Unknown";
 
