@@ -58,6 +58,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     // --- Floating Text Dependencies ---
     private readonly Dictionary<int, int> _playerActiveCount = new();
     private readonly Dictionary<int, int> _playerCurrentIndex = new();
+    private readonly Dictionary<int, List<CPointWorldText>> _playerPersistentHUDs = new();
     
     private Dictionary<char, System.Drawing.Color> ChatColors = new Dictionary<char, System.Drawing.Color>
     {
@@ -79,26 +80,54 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         { '\x10', System.Drawing.Color.Goldenrod }
     };
 
-    private void SendChatAllAndFloatMessage(string message)
+    private void SendChatAllAndFloatMessage(string message, bool isPersistent = false)
     {
         foreach (var p in Utilities.GetPlayers().Where(x => x is { IsValid: true, IsBot: false }))
         {
-            CreateFloatingHUDMessages(p, message);
+            CreateFloatingHUDMessages(p, message, isPersistent);
         }
     }
 
-    private void SendChatAndFloatMessage(CCSPlayerController player, string message)
+    private void SendChatAndFloatMessage(CCSPlayerController player, string message, bool isPersistent = false)
     {
         if (player is { IsValid: true, IsBot: false })
         {
-            CreateFloatingHUDMessages(player, message);
+            CreateFloatingHUDMessages(player, message, isPersistent);
         }
     }
 
-    private void CreateFloatingHUDMessages(CCSPlayerController player, string message)
+    private void FadeAndRemoveHUD(CPointWorldText wp, int playerSlot)
+    {
+        AddTimer(5.0f, () => 
+        {
+            for (float f = 1.0f; f <= 5.0f; f++)
+            {
+                float fadeStep = f;
+                AddTimer(f * (2.0f / 5.0f), () => 
+                {
+                    if (wp != null && wp.IsValid)
+                    {
+                        wp.Color = System.Drawing.Color.FromArgb((int)(255 * (1.0f - fadeStep / 5.0f)), wp.Color.R, wp.Color.G, wp.Color.B);
+                        wp.AcceptInput("SetMessage", wp, wp, wp.MessageText);
+                    }
+                });
+            }
+            AddTimer(2.0f, () => 
+            {
+                if (wp != null && wp.IsValid) wp.Remove();
+                
+                if (_playerActiveCount.ContainsKey(playerSlot))
+                {
+                    _playerActiveCount[playerSlot] = System.Math.Max(0, _playerActiveCount[playerSlot] - 1);
+                }
+            });
+        });
+    }
+
+    private void CreateFloatingHUDMessages(CCSPlayerController player, string message, bool isPersistent = false)
     {
         message = message.Trim();
-        System.Drawing.Color currentColor = System.Drawing.Color.White;
+        message = System.Text.RegularExpressions.Regex.Replace(message, @"[-]", "");
 
         if (player.PlayerPawn.Value == null || player.PlayerPawn.Value.AbsOrigin == null) return;
 
@@ -130,86 +159,46 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         float baseUpDist = 12.0f; 
         float lineSpacing = 3.5f; 
         float upDist = baseUpDist - (lineIndex * lineSpacing); 
-        float lastWidth = 0.0f;
 
-        List<CPointWorldText> entities = new();
+        var wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
+        if (wp == null) return;
 
-        var parts = System.Text.RegularExpressions.Regex.Split(message, @"([\x01-\x10])");
+        wp.Enabled = true;
+        wp.MessageText = ""; 
+        wp.FontSize = 18;
+        wp.FontName = "Arial";
+        wp.Fullbright = true;
+        wp.WorldUnitsPerPx = 0.25f; 
+        wp.Color = System.Drawing.Color.White;
+        wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
+        wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
+        wp.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
+        wp.DrawBackground = true;
+        wp.BackgroundBorderWidth = 0.2f;
+        wp.BackgroundBorderHeight = 0.2f;
 
-        foreach (var part in parts)
+        Vector origin = new Vector(
+            player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * rightDistOffset + upX * upDist,
+            player.PlayerPawn.Value.AbsOrigin.Y + player.PlayerPawn.Value.ViewOffset.Y + fwdY * fwdDist + rightY * rightDistOffset + upY * upDist,
+            player.PlayerPawn.Value.AbsOrigin.Z + player.PlayerPawn.Value.ViewOffset.Z + fwdZ * fwdDist + rightZ * rightDistOffset + upZ * upDist
+        );
+
+        QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
+        wp.Teleport(origin, angle, new Vector(0,0,0));
+        wp.DispatchSpawn();
+        
+        wp.AcceptInput("SetParent", player.PlayerPawn.Value, null, "!activator");
+        wp.AcceptInput("SetMessage", wp, wp, message);
+
+        if (isPersistent)
         {
-            if (string.IsNullOrEmpty(part)) continue;
-            
-            if (part.Length == 1 && part[0] >= '\x01' && part[0] <= '\x10')
-            {
-                if (ChatColors.TryGetValue(part[0], out var c)) currentColor = c;
-                continue;
-            }
-
-            var wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
-            if (wp == null) continue;
-
-            float rightDist = rightDistOffset + lastWidth;
-            wp.Enabled = true;
-            wp.MessageText = ""; 
-            wp.FontSize = 18;
-            wp.FontName = "Arial";
-            wp.Fullbright = true;
-            wp.WorldUnitsPerPx = 0.25f; // THIS MAKES IT VISIBLE!
-            wp.Color = currentColor;
-            wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
-            wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
-            wp.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
-            wp.DrawBackground = true;
-            wp.BackgroundBorderWidth = 0.2f;
-            wp.BackgroundBorderHeight = 0.2f;
-
-            Vector origin = new Vector(
-                player.PlayerPawn.Value.AbsOrigin.X + player.PlayerPawn.Value.ViewOffset.X + fwdX * fwdDist + rightX * rightDist + upX * upDist,
-                player.PlayerPawn.Value.AbsOrigin.Y + player.PlayerPawn.Value.ViewOffset.Y + fwdY * fwdDist + rightY * rightDist + upY * upDist,
-                player.PlayerPawn.Value.AbsOrigin.Z + player.PlayerPawn.Value.ViewOffset.Z + fwdZ * fwdDist + rightZ * rightDist + upZ * upDist
-            );
-
-            QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
-            wp.Teleport(origin, angle, new Vector(0,0,0));
-            wp.DispatchSpawn();
-            
-            // Required Dispatch inputs
-            wp.AcceptInput("SetParent", player.PlayerPawn.Value, null, "!activator");
-            wp.AcceptInput("SetMessage", wp, wp, part);
-            
-            entities.Add(wp);
-            lastWidth += part.Length * 2.5f; 
+            if (!_playerPersistentHUDs.ContainsKey(player.Slot)) _playerPersistentHUDs[player.Slot] = new();
+            _playerPersistentHUDs[player.Slot].Add(wp);
         }
-
-        AddTimer(5.0f, () => 
+        else
         {
-            // Fading out
-            for (float f = 1.0f; f <= 5.0f; f++)
-            {
-                float fadeStep = f;
-                AddTimer(f * (2.0f / 5.0f), () => 
-                {
-                    foreach (var en in entities)
-                    {
-                        if (en != null && en.IsValid)
-                        {
-                            en.Color = System.Drawing.Color.FromArgb((int)(255 * (1.0f - fadeStep / 5.0f)), en.Color.R, en.Color.G, en.Color.B);
-                            en.AcceptInput("SetMessage", en, en, en.MessageText);
-                        }
-                    }
-                });
-            }
-            AddTimer(2.0f, () => 
-            {
-                foreach (var en in entities) { if (en != null && en.IsValid) en.Remove(); }
-                
-                if (_playerActiveCount.ContainsKey(player.Slot))
-                {
-                    _playerActiveCount[player.Slot] = System.Math.Max(0, _playerActiveCount[player.Slot] - 1);
-                }
-            });
-        });
+            FadeAndRemoveHUD(wp, player.Slot);
+        }
     }
 
     public VoteConfig Config { get; set; } = new();
@@ -388,7 +377,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 if (_unloaded) return;
                 // Find full title from available maps
                 string displayMapName = _availableMaps.FirstOrDefault(m => mapName.Contains(m.Name) || m.Id == mapName || mapName.Contains(m.Id))?.Name ?? mapName;
-                SendChatAllAndFloatMessage($" {ColorDefault}You're playing {ColorGreen}{displayMapName}{ColorDefault} on {ColorGreen}{Config.ServerName}{ColorDefault}!");
+                Server.PrintToChatAll($" {ColorDefault}You're playing {ColorGreen}{displayMapName}{ColorDefault} on {ColorGreen}{Config.ServerName}{ColorDefault}!");
             }, TimerFlags.REPEAT);
         }
     }
@@ -408,6 +397,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _previousWinningMapName = null;
         _forceVoteTimeRemaining = 0;
 
+        _playerPersistentHUDs.Clear();
         _rtvVoters.Clear();
         _playerVotes.Clear();
         _activeVoteOptions.Clear();
@@ -712,7 +702,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         bool isConsole = player == null;
         if (!isConsole && !Config.Admins.Contains(player!.SteamID))
         {
-            SendChatAndFloatMessage(player, $" {ColorDefault}You do not have permission to use this command.");
+            player.PrintToChat($" {ColorDefault}You do not have permission to use this command.");
             return;
         }
 
@@ -814,16 +804,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             .Where(a => a != null)
             .ToList();
 
-        SendChatAndFloatMessage(p, $" {ColorDefault}---{ColorGreen} CS2SimpleVote Commands {ColorDefault}---");
+        p.PrintToChat($" {ColorDefault}---{ColorGreen} CS2SimpleVote Commands {ColorDefault}---");
 
         if (isAdmin)
         {
             var adminCmds = commands.Where(c => c!.Description.Contains("Admin", StringComparison.OrdinalIgnoreCase)).OrderBy(c => c!.Command);
-            foreach (var cmd in adminCmds) SendChatAndFloatMessage(p, $" {ColorGreen}!{cmd!.Command} {ColorDefault}- {cmd.Description}");
+            foreach (var cmd in adminCmds) p.PrintToChat($" {ColorGreen}!{cmd!.Command} {ColorDefault}- {cmd.Description}");
         }
 
         var playerCmds = commands.Where(c => !c!.Description.Contains("Admin", StringComparison.OrdinalIgnoreCase)).OrderBy(c => c!.Command);
-        foreach (var cmd in playerCmds) SendChatAndFloatMessage(p, $" {ColorGreen}!{cmd!.Command} {ColorDefault}- {cmd.Description}");
+        foreach (var cmd in playerCmds) p.PrintToChat($" {ColorGreen}!{cmd!.Command} {ColorDefault}- {cmd.Description}");
     }
 
     private void PrintNominationList(CCSPlayerController? player)
@@ -837,7 +827,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         {
             var owner = _nominationOwner.FirstOrDefault(x => x.Value.Id == map.Id);
             string nominator = (owner.Value != null && _nominationNames.TryGetValue(owner.Key, out var name)) ? name : "Unknown";
-            SendChatAndFloatMessage(player, $" {ColorGreen} - {nominator} {ColorDefault}- {ColorGreen}{map.Name}");
+            player.PrintToChat($" {ColorGreen} - {nominator} {ColorDefault}- {ColorGreen}{map.Name}");
         }
     }
 
@@ -857,7 +847,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             // Meaning, the "last" map before the current one is at count - 2.
             string lastMapId = _recentMapIds[_recentMapIds.Count - 2];
             string lastMapName = GetMapName(lastMapId);
-            SendChatAllAndFloatMessage($" {ColorDefault}The last played map was: {ColorGreen}{lastMapName}");
+            Server.PrintToChatAll($" {ColorDefault}The last played map was: {ColorGreen}{lastMapName}");
         }
         else 
         {
@@ -873,7 +863,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (_recentMapIds.Count == 0 || (_recentMapIds.Count == 1 && IsCurrentMap(new MapItem { Id = _recentMapIds[0] })))
         {
-            SendChatAndFloatMessage(p, $" {ColorDefault}No recent maps data available yet.");
+            p.PrintToChat($" {ColorDefault}No recent maps data available yet.");
             return;
         }
 
@@ -886,7 +876,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             }
             else
             {
-                SendChatAndFloatMessage(p, $" {ColorDefault}Please enter a number between 1 and {Config.RecentMapsCount}.");
+                p.PrintToChat($" {ColorDefault}Please enter a number between 1 and {Config.RecentMapsCount}.");
                 return;
             }
         }
@@ -894,9 +884,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         string titleText = $"Last {maxDisplayCount} Recent Maps";
         string dashes = new string('-', titleText.Length);
         
-        SendChatAndFloatMessage(p, $" {ColorDefault}{dashes}");
-        SendChatAndFloatMessage(p, $" {ColorGreen}{titleText}");
-        SendChatAndFloatMessage(p, $" {ColorDefault}{dashes}");
+        p.PrintToChat($" {ColorDefault}{dashes}");
+        p.PrintToChat($" {ColorGreen}{titleText}");
+        p.PrintToChat($" {ColorDefault}{dashes}");
         
         var recentNames = _recentMapIds
             .Select(id => GetMapName(id))
@@ -913,7 +903,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             // Let's filter out current map to show only purely *past* maps
             if (IsCurrentMap(new MapItem { Id = _recentMapIds[_recentMapIds.Count - 1 - i], Name = recentNames[i] })) continue;
 
-            SendChatAndFloatMessage(p, $" {ColorGreen}{displayCount}. {ColorDefault}{recentNames[i]}");
+            p.PrintToChat($" {ColorGreen}{displayCount}. {ColorDefault}{recentNames[i]}");
             displayCount++;
         }
     }
@@ -923,16 +913,16 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         LogRoutine(new { player }, null);
         if (!IsValidPlayer(player)) return;
         var p = player!;
-        if (IsWarmup()) { SendChatAndFloatMessage(p, $" {ColorDefault}RTV is disabled during warmup."); return; }
-        if (!Config.EnableRtv) { SendChatAndFloatMessage(p, $" {ColorDefault}RTV is currently disabled."); return; }
+        if (IsWarmup()) { p.PrintToChat($" {ColorDefault}RTV is disabled during warmup."); return; }
+        if (!Config.EnableRtv) { p.PrintToChat($" {ColorDefault}RTV is currently disabled."); return; }
         if (_voteInProgress || _voteFinished) return;
-        if (!_rtvVoters.Add(p.Slot)) { SendChatAndFloatMessage(p, $" {ColorDefault}You have already rocked the vote."); return; }
+        if (!_rtvVoters.Add(p.Slot)) { p.PrintToChat($" {ColorDefault}You have already rocked the vote."); return; }
 
         int currentPlayers = GetHumanPlayers().Count();
         int votesNeeded = (int)Math.Ceiling(currentPlayers * Config.RtvPercentage);
-        SendChatAllAndFloatMessage($" {ColorDefault}{ColorGreen}{p.PlayerName}{ColorDefault} wants to change the map! ({_rtvVoters.Count}/{votesNeeded})");
+        Server.PrintToChatAll($" {ColorDefault}{ColorGreen}{p.PlayerName}{ColorDefault} wants to change the map! ({_rtvVoters.Count}/{votesNeeded})");
 
-        if (_rtvVoters.Count >= votesNeeded) { SendChatAllAndFloatMessage($" {ColorDefault}RTV Threshold reached! Starting vote..."); StartMapVote(isRtv: true); }
+        if (_rtvVoters.Count >= votesNeeded) { Server.PrintToChatAll($" {ColorDefault}RTV Threshold reached! Starting vote..."); StartMapVote(isRtv: true); }
     }
 
     private void AttemptNominate(CCSPlayerController? player, string? searchTerm = null)
@@ -940,11 +930,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         LogRoutine(new { player, searchTerm }, null);
         if (!IsValidPlayer(player)) return;
         var p = player!;
-        if (!Config.EnableNominate) { SendChatAndFloatMessage(p, $" {ColorDefault}Nominations are currently disabled."); return; }
-        if (_voteInProgress || _voteFinished) { SendChatAndFloatMessage(p, $" {ColorDefault}Voting has already finished."); return; }
+        if (!Config.EnableNominate) { p.PrintToChat($" {ColorDefault}Nominations are currently disabled."); return; }
+        if (_voteInProgress || _voteFinished) { p.PrintToChat($" {ColorDefault}Voting has already finished."); return; }
         
         bool isRenomination = _hasNominatedSteamIds.Contains(p.SteamID);
-        if (!isRenomination && _nominatedMaps.Count >= Config.VoteOptionsCount) { SendChatAndFloatMessage(p, $" {ColorDefault}The nomination list is full!"); return; }
+        if (!isRenomination && _nominatedMaps.Count >= Config.VoteOptionsCount) { p.PrintToChat($" {ColorDefault}The nomination list is full!"); return; }
 
         var validMaps = _availableMaps
             .Where(m => !_nominatedMaps.Any(n => n.Id == m.Id))
@@ -958,7 +948,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (validMaps.Count == 0)
         {
-            SendChatAndFloatMessage(p, string.IsNullOrEmpty(searchTerm) ? $" {ColorDefault}No maps available to nominate." : $" {ColorDefault}No maps found matching: {ColorGreen}{searchTerm}");
+            p.PrintToChat(string.IsNullOrEmpty(searchTerm) ? $" {ColorDefault}No maps available to nominate." : $" {ColorDefault}No maps found matching: {ColorGreen}{searchTerm}");
             return;
         }
 
@@ -968,7 +958,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             var selectedMap = validMaps[0];
             if (_nominatedMaps.Any(m => m.Id == selectedMap.Id))
             {
-                SendChatAndFloatMessage(p, $" {ColorDefault}That map is already nominated.");
+                p.PrintToChat($" {ColorDefault}That map is already nominated.");
             }
             else
             {
@@ -992,15 +982,15 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         int startIndex = page * Config.NominatePerPage;
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
-        SendChatAndFloatMessage(player, $" {ColorDefault}Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
-        for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; SendChatAndFloatMessage(player, $" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
-        if (totalPages > 1) SendChatAndFloatMessage(player, $" {ColorGreen}[0] {ColorDefault}Next Page");
+        player.PrintToChat($" {ColorDefault}Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
+        for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; player.PrintToChat($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
+        if (totalPages > 1) SendChatAndFloatMessage(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
     }
 
     private HookResult HandleNominationInput(CCSPlayerController player, string input)
     {
         LogRoutine(new { player, input }, null);
-        if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseNominationMenu(player); SendChatAndFloatMessage(player, $" {ColorDefault}Nomination cancelled."); return HookResult.Handled; }
+        if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseNominationMenu(player); player.PrintToChat($" {ColorDefault}Nomination cancelled."); return HookResult.Handled; }
         if (input == "0") { _playerNominationPage[player.Slot]++; DisplayNominationMenu(player); return HookResult.Handled; }
         if (int.TryParse(input, out int selection))
         {
@@ -1012,8 +1002,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 var selectedMap = maps[realIndex];
                 bool isRenomination = _hasNominatedSteamIds.Contains(player.SteamID);
 
-                if (!isRenomination && _nominatedMaps.Count >= Config.VoteOptionsCount) SendChatAndFloatMessage(player, $" {ColorDefault}Nomination list is full.");
-                else if (_nominatedMaps.Any(m => m.Id == selectedMap.Id)) SendChatAndFloatMessage(player, $" {ColorDefault}That map was just nominated by someone else.");
+                if (!isRenomination && _nominatedMaps.Count >= Config.VoteOptionsCount) player.PrintToChat($" {ColorDefault}Nomination list is full.");
+                else if (_nominatedMaps.Any(m => m.Id == selectedMap.Id)) player.PrintToChat($" {ColorDefault}That map was just nominated by someone else.");
                 else { ProcessNomination(player, selectedMap); }
                 CloseNominationMenu(player);
                 return HookResult.Handled;
@@ -1034,14 +1024,14 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             }
             _nominatedMaps.Add(map);
             _nominationOwner[player.SteamID] = map;
-            SendChatAllAndFloatMessage($" {ColorDefault}Player {ColorGreen}{player.PlayerName}{ColorDefault} changed their nomination to {ColorGreen}{map.Name}{ColorDefault}.");
+            Server.PrintToChatAll($" {ColorDefault}Player {ColorGreen}{player.PlayerName}{ColorDefault} changed their nomination to {ColorGreen}{map.Name}{ColorDefault}.");
         }
         else
         {
             _nominatedMaps.Add(map);
             _hasNominatedSteamIds.Add(player.SteamID);
             _nominationOwner[player.SteamID] = map;
-            SendChatAllAndFloatMessage($" {ColorDefault}Player {ColorGreen}{player.PlayerName}{ColorDefault} nominated {ColorGreen}{map.Name}{ColorDefault}.");
+            Server.PrintToChatAll($" {ColorDefault}Player {ColorGreen}{player.PlayerName}{ColorDefault} nominated {ColorGreen}{map.Name}{ColorDefault}.");
         }
     }
 
@@ -1056,7 +1046,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (!Config.Admins.Contains(p.SteamID))
         {
-            SendChatAndFloatMessage(p, $" {ColorDefault}You do not have permission to use this command.");
+            p.PrintToChat($" {ColorDefault}You do not have permission to use this command.");
             return;
         }
 
@@ -1069,7 +1059,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (validMaps.Count == 0)
         {
-            SendChatAndFloatMessage(p, string.IsNullOrEmpty(searchTerm) ? $" {ColorDefault}No maps available." : $" {ColorDefault}No maps found matching: {ColorGreen}{searchTerm}");
+            p.PrintToChat(string.IsNullOrEmpty(searchTerm) ? $" {ColorDefault}No maps available." : $" {ColorDefault}No maps found matching: {ColorGreen}{searchTerm}");
             return;
         }
 
@@ -1077,7 +1067,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (validMaps.Count == 1 && !string.IsNullOrEmpty(searchTerm))
         {
             var map = validMaps[0];
-            SendChatAllAndFloatMessage($" {ColorDefault}Admin {ColorGreen}{p.PlayerName}{ColorDefault} forced map change to {ColorGreen}{map.Name}{ColorDefault}.");
+            Server.PrintToChatAll($" {ColorDefault}Admin {ColorGreen}{p.PlayerName}{ColorDefault} forced map change to {ColorGreen}{map.Name}{ColorDefault}.");
             Server.ExecuteCommand($"host_workshop_map {map.Id}");
             return;
         }
@@ -1097,15 +1087,15 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         int startIndex = page * Config.NominatePerPage;
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
-        SendChatAndFloatMessage(player, $" {ColorDefault}[Forcemap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
-        for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; SendChatAndFloatMessage(player, $" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
-        if (totalPages > 1) SendChatAndFloatMessage(player, $" {ColorGreen}[0] {ColorDefault}Next Page");
+        player.PrintToChat($" {ColorDefault}[Forcemap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
+        for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; player.PrintToChat($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
+        if (totalPages > 1) SendChatAndFloatMessage(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
     }
 
     private HookResult HandleForcemapInput(CCSPlayerController player, string input)
     {
         LogRoutine(new { player, input }, null);
-        if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseForcemapMenu(player); SendChatAndFloatMessage(player, $" {ColorDefault}Forcemap cancelled."); return HookResult.Handled; }
+        if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseForcemapMenu(player); player.PrintToChat($" {ColorDefault}Forcemap cancelled."); return HookResult.Handled; }
         if (input == "0") { _playerForcemapPage[player.Slot]++; DisplayForcemapMenu(player); return HookResult.Handled; }
         if (int.TryParse(input, out int selection))
         {
@@ -1115,7 +1105,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             if (realIndex >= 0 && realIndex < maps.Count && realIndex >= (page * Config.NominatePerPage) && realIndex < ((page + 1) * Config.NominatePerPage))
             {
                 var selectedMap = maps[realIndex];
-                SendChatAllAndFloatMessage($" {ColorDefault} Admin {ColorGreen}{player.PlayerName}{ColorDefault} forced map change to {ColorGreen}{selectedMap.Name}{ColorDefault}.");
+                Server.PrintToChatAll($" {ColorDefault} Admin {ColorGreen}{player.PlayerName}{ColorDefault} forced map change to {ColorGreen}{selectedMap.Name}{ColorDefault}.");
                 Server.ExecuteCommand($"host_workshop_map {selectedMap.Id}");
                 CloseForcemapMenu(player);
                 return HookResult.Handled;
@@ -1134,7 +1124,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (!Config.Admins.Contains(p.SteamID))
         {
-            SendChatAndFloatMessage(p, $" {ColorDefault}You do not have permission to use this command.");
+            p.PrintToChat($" {ColorDefault}You do not have permission to use this command.");
             return;
         }
 
@@ -1147,7 +1137,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (validMaps.Count == 0)
         {
-            SendChatAndFloatMessage(p, string.IsNullOrEmpty(searchTerm) ? $" {ColorDefault}No maps available." : $" {ColorDefault}No maps found matching: {ColorGreen}{searchTerm}");
+            p.PrintToChat(string.IsNullOrEmpty(searchTerm) ? $" {ColorDefault}No maps available." : $" {ColorDefault}No maps found matching: {ColorGreen}{searchTerm}");
             return;
         }
 
@@ -1172,15 +1162,15 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         int startIndex = page * Config.NominatePerPage;
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
-        SendChatAndFloatMessage(player, $" {ColorDefault}[SetNextMap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
-        for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; SendChatAndFloatMessage(player, $" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
-        if (totalPages > 1) SendChatAndFloatMessage(player, $" {ColorGreen}[0] {ColorDefault}Next Page");
+        player.PrintToChat($" {ColorDefault}[SetNextMap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
+        for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; player.PrintToChat($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
+        if (totalPages > 1) SendChatAndFloatMessage(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
     }
 
     private HookResult HandleSetNextMapInput(CCSPlayerController player, string input)
     {
         LogRoutine(new { player, input }, null);
-        if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseSetNextMapMenu(player); SendChatAndFloatMessage(player, $" {ColorDefault}SetNextMap cancelled."); return HookResult.Handled; }
+        if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseSetNextMapMenu(player); player.PrintToChat($" {ColorDefault}SetNextMap cancelled."); return HookResult.Handled; }
         if (input == "0") { _playerSetNextMapPage[player.Slot]++; DisplaySetNextMapMenu(player); return HookResult.Handled; }
         if (int.TryParse(input, out int selection))
         {
@@ -1207,7 +1197,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         string dashes = new string('-', rawMsg.Length);
 
         SendChatAllAndFloatMessage($" {ColorDefault}{dashes}");
-        SendChatAllAndFloatMessage($" {ColorGreen}{player.PlayerName} {ColorDefault}has set the next map to {ColorGreen}{selectedMap.Name}{ColorDefault}.");
+        Server.PrintToChatAll($" {ColorGreen}{player.PlayerName} {ColorDefault}has set the next map to {ColorGreen}{selectedMap.Name}{ColorDefault}.");
         SendChatAllAndFloatMessage($" {ColorDefault}{dashes}");
     }
 
@@ -1222,18 +1212,18 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (!Config.Admins.Contains(p.SteamID))
         {
-            SendChatAndFloatMessage(p, $" {ColorDefault} You do not have permission to use this command.");
+            p.PrintToChat($" {ColorDefault} You do not have permission to use this command.");
             return;
         }
 
         if (!IsWarmup())
         {
-            SendChatAndFloatMessage(p, $" {ColorDefault} The game is not in warmup.");
+            p.PrintToChat($" {ColorDefault} The game is not in warmup.");
             return;
         }
 
         Server.ExecuteCommand("mp_warmup_end");
-        SendChatAllAndFloatMessage($" {ColorDefault} Admin {ColorGreen}{p.PlayerName}{ColorDefault} ended the warmup.");
+        Server.PrintToChatAll($" {ColorDefault} Admin {ColorGreen}{p.PlayerName}{ColorDefault} ended the warmup.");
     }
 
     // --- ForceVote Logic ---
@@ -1245,29 +1235,29 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (!Config.Admins.Contains(p.SteamID))
         {
-            SendChatAndFloatMessage(p, $" {ColorDefault} You do not have permission to use this command.");
+            p.PrintToChat($" {ColorDefault} You do not have permission to use this command.");
             return;
         }
 
         if (IsWarmup())
         {
-            SendChatAndFloatMessage(p, $" {ColorDefault} Cannot start vote during warmup.");
+            p.PrintToChat($" {ColorDefault} Cannot start vote during warmup.");
             return;
         }
 
         if (_matchEnded)
         {
-            SendChatAndFloatMessage(p, $" {ColorDefault} Cannot start vote after match end.");
+            p.PrintToChat($" {ColorDefault} Cannot start vote after match end.");
             return;
         }
 
         if (_voteInProgress)
         {
-            SendChatAndFloatMessage(p, $" {ColorDefault}A vote is already in progress.");
+            p.PrintToChat($" {ColorDefault}A vote is already in progress.");
             return;
         }
 
-        SendChatAllAndFloatMessage($" {ColorDefault} Admin {ColorGreen}{p.PlayerName}{ColorDefault} initiated a map vote.");
+        Server.PrintToChatAll($" {ColorDefault} Admin {ColorGreen}{p.PlayerName}{ColorDefault} initiated a map vote.");
         StartMapVote(isRtv: false, isForceVote: true);
     }
     private void StartMapVote(bool isRtv, bool isForceVote = false)
@@ -1321,7 +1311,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         if (isRtv)
         {
-            SendChatAllAndFloatMessage($" {ColorDefault}Vote ending in 30 seconds!");
+            Server.PrintToChatAll($" {ColorDefault}Vote ending in 30 seconds!");
             AddTimer(30.0f, () => EndVote());
         }
         else if (isForceVote && _previousWinningMapId != null) // Scenario: Vote already happened
@@ -1330,7 +1320,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
              // Chat message handled by center timer updates or initial print? 
              // Request says center message: "VOTE NOW! Time Remaining: 30s"
              // Typically we should also print to chat.
-             SendChatAllAndFloatMessage($" {ColorDefault}Vote ending in 30 seconds!");
+             Server.PrintToChatAll($" {ColorDefault}Vote ending in 30 seconds!");
              AddTimer(30.0f, () => EndVote());
         }
         else
@@ -1346,7 +1336,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         {
             _reminderTimer = AddTimer(Config.ReminderIntervalSeconds, () => {
                 if (_unloaded) return;
-                foreach (var p in GetHumanPlayers().Where(p => !_playerVotes.ContainsKey(p.Slot))) { SendChatAndFloatMessage(p, $" {ColorDefault}Reminder: Please vote for the next map!"); PrintVoteOptionsToPlayer(p); }
+                foreach (var p in GetHumanPlayers().Where(p => !_playerVotes.ContainsKey(p.Slot))) { p.PrintToChat($" {ColorDefault}Reminder: Please vote for the next map!"); PrintVoteOptionsToPlayer(p); }
             }, TimerFlags.REPEAT);
         }
 
@@ -1374,7 +1364,19 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private HookResult HandleVoteInput(CCSPlayerController player, string input)
     {
         LogRoutine(new { player, input }, null);
-        if (int.TryParse(input, out int option) && _activeVoteOptions.ContainsKey(option)) { _playerVotes[player.Slot] = option; SendChatAndFloatMessage(player, $" {ColorDefault}You voted for: {ColorGreen}{GetMapName(_activeVoteOptions[option])}{ColorDefault}"); return HookResult.Handled; }
+        if (int.TryParse(input, out int option) && _activeVoteOptions.ContainsKey(option)) 
+        { 
+            _playerVotes[player.Slot] = option; 
+            
+            if (_playerPersistentHUDs.TryGetValue(player.Slot, out var list))
+            {
+                foreach (var wp in list) if (wp != null && wp.IsValid) FadeAndRemoveHUD(wp, player.Slot);
+                list.Clear();
+            }
+
+            SendChatAndFloatMessage(player, $" {ColorDefault}You voted for: {ColorGreen}{GetMapName(_activeVoteOptions[option])}{ColorDefault}"); 
+            return HookResult.Handled; 
+        }
         return HookResult.Continue;
     }
 
@@ -1384,6 +1386,12 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (!_voteInProgress) return;
         _voteInProgress = false; _voteFinished = true; _reminderTimer?.Kill(); _reminderTimer = null;
         _centerMessageTimer?.Kill(); _centerMessageTimer = null;
+
+        foreach (var kvp in _playerPersistentHUDs)
+        {
+            foreach (var wp in kvp.Value) if (wp != null && wp.IsValid) FadeAndRemoveHUD(wp, kvp.Key);
+        }
+        _playerPersistentHUDs.Clear();
         string winningMapId; int voteCount;
 
         // Special Logic: Force Vote with existing winner
@@ -1417,7 +1425,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         string dashes = new string('-', rawMsg.Length);
 
         SendChatAllAndFloatMessage($" {ColorDefault}{dashes}");
-        SendChatAllAndFloatMessage($" {ColorDefault}Winner: {ColorGreen}{_nextMapName}{ColorDefault}" + (voteCount > 0 ? $" with {ColorGreen}{voteCount}{ColorDefault} votes!" : " (Random/Previous)"));
+        Server.PrintToChatAll($" {ColorDefault}Winner: {ColorGreen}{_nextMapName}{ColorDefault}" + (voteCount > 0 ? $" with {ColorGreen}{voteCount}{ColorDefault} votes!" : " (Random/Previous)"));
         SendChatAllAndFloatMessage($" {ColorDefault}{dashes}");
         
         if (voteCount > 0 && Config.ShowMidVoteProgress)
@@ -1451,11 +1459,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         // So we fall to else block.
         
         _pendingMapId = winningMapId; 
-        SendChatAllAndFloatMessage($" {ColorDefault}Map will change at the end of the match."); 
+        Server.PrintToChatAll($" {ColorDefault}Map will change at the end of the match."); 
     }
 
     private void PrintVoteOptionsToAll() { foreach (var p in GetHumanPlayers()) PrintVoteOptionsToPlayer(p); }
-    private void PrintVoteOptionsToPlayer(CCSPlayerController player) { SendChatAndFloatMessage(player, $" {ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:"); foreach (var kvp in _activeVoteOptions) SendChatAndFloatMessage(player, $" {ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}"); }
+    private void PrintVoteOptionsToPlayer(CCSPlayerController player) { SendChatAndFloatMessage(player, $" {ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:", true); foreach (var kvp in _activeVoteOptions) SendChatAndFloatMessage(player, $" {ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}", true); }
     private string GetMapName(string mapId) => _availableMaps.FirstOrDefault(m => m.Id == mapId)?.Name ?? "Unknown";
 
     private void PrintVoteProgress()
@@ -1504,11 +1512,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 int roundsLeft = Config.VoteOpenForRounds - _currentVoteRoundDuration;
                 if (roundsLeft == 1)
                 {
-                    SendChatAllAndFloatMessage($" {ColorDefault}Map Vote continuing! Vote will remain open until the round ends.");
+                    Server.PrintToChatAll($" {ColorDefault}Map Vote continuing! Vote will remain open until the round ends.");
                 }
                 else
                 {
-                    SendChatAllAndFloatMessage($" {ColorDefault}Map Vote continuing! {ColorGreen}{roundsLeft}{ColorDefault} rounds remaining.");
+                    Server.PrintToChatAll($" {ColorDefault}Map Vote continuing! {ColorGreen}{roundsLeft}{ColorDefault} rounds remaining.");
                 }
                 
                 if (Config.ShowMidVoteProgress)
@@ -1529,7 +1537,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             EndVote();
         }
 
-        if (!string.IsNullOrEmpty(_pendingMapId)) { SendChatAllAndFloatMessage($" {ColorDefault} Changing map to {ColorGreen}{GetMapName(_pendingMapId)}{ColorDefault}!"); AddTimer(8.0f, () => Server.ExecuteCommand($"host_workshop_map {_pendingMapId}")); }
+        if (!string.IsNullOrEmpty(_pendingMapId)) { Server.PrintToChatAll($" {ColorDefault} Changing map to {ColorGreen}{GetMapName(_pendingMapId)}{ColorDefault}!"); AddTimer(8.0f, () => Server.ExecuteCommand($"host_workshop_map {_pendingMapId}")); }
         return HookResult.Continue;
     }
     private HookResult OnPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
