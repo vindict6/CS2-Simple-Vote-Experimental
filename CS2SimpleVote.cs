@@ -212,7 +212,8 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private void CreateFloatingHUDMessages(CCSPlayerController player, string message, bool isPersistent = false, int lineIndex = 0)
     {
         message = message.Trim();
-        message = System.Text.RegularExpressions.Regex.Replace(message, @"[\-\]", "");
+        // Remove color codes but preserve newlines (\x0A) and carriage returns (\x0D)
+        message = System.Text.RegularExpressions.Regex.Replace(message, @"[\x01-\x09\x0B\x0C\x0E-\x10]", "");
 
         if (player.PlayerPawn.Value == null || player.PlayerPawn.Value.AbsOrigin == null) return;
         
