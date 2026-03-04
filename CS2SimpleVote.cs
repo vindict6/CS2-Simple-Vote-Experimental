@@ -420,7 +420,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         RemoveListener<Listeners.CheckTransmit>(OnTransmit);
         LogRoutine(new { hotReload }, null);
         _unloaded = true;
+        _cts.Cancel();
         _logQueue.CompleteAdding();
+        _logTask?.Wait(500); // Allow some time for final logs
 
         // Kill all timers first to prevent any further execution
         _reminderTimer?.Kill();
@@ -429,6 +431,18 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _mapInfoTimer = null;
         _centerMessageTimer?.Kill();
         _centerMessageTimer = null;
+
+        // Cleanup HUDs - remove entities from the world
+        foreach (var kvp in _allPlayerTexts)
+        {
+            foreach (var wp in kvp.Value)
+            {
+                if (wp != null && wp.IsValid) wp.Remove();
+            }
+            kvp.Value.Clear();
+        }
+        _allPlayerTexts.Clear();
+        _playerPersistentHUDs.Clear();
 
         // Clear collections to release references
         _availableMaps.Clear();
@@ -1090,15 +1104,13 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         int startIndex = page * Config.NominatePerPage;
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
         
-        var sb = new StringBuilder();
-        sb.AppendLine($" {ColorDefault}Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
+        int line = 0;
+        CreateFloatingHUDMessages(player, $" {ColorDefault}Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):", true, line++);
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
-            sb.AppendLine($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); 
+            CreateFloatingHUDMessages(player, $" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}", true, line++); 
         }
-        if (totalPages > 1) sb.AppendLine($" {ColorGreen}[0] {ColorDefault}Next Page");
-        
-        CreateFloatingHUDMessages(player, sb.ToString().TrimEnd(), true);
+        if (totalPages > 1) CreateFloatingHUDMessages(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true, line++);
     }
 
     private HookResult HandleNominationInput(CCSPlayerController player, string input)
@@ -1226,15 +1238,13 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         int startIndex = page * Config.NominatePerPage;
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
         
-        var sb = new StringBuilder();
-        sb.AppendLine($" {ColorDefault}[Forcemap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
+        int line = 0;
+        CreateFloatingHUDMessages(player, $" {ColorDefault}[Forcemap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):", true, line++);
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
-            sb.AppendLine($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); 
+            CreateFloatingHUDMessages(player, $" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}", true, line++); 
         }
-        if (totalPages > 1) sb.AppendLine($" {ColorGreen}[0] {ColorDefault}Next Page");
-        
-        CreateFloatingHUDMessages(player, sb.ToString().TrimEnd(), true);
+        if (totalPages > 1) CreateFloatingHUDMessages(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true, line++);
     }
 
     private HookResult HandleForcemapInput(CCSPlayerController player, string input)
@@ -1312,15 +1322,13 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         int startIndex = page * Config.NominatePerPage;
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
         
-        var sb = new StringBuilder();
-        sb.AppendLine($" {ColorDefault}[SetNextMap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
+        int line = 0;
+        CreateFloatingHUDMessages(player, $" {ColorDefault}[SetNextMap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):", true, line++);
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
-            sb.AppendLine($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); 
+            CreateFloatingHUDMessages(player, $" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}", true, line++); 
         }
-        if (totalPages > 1) sb.AppendLine($" {ColorGreen}[0] {ColorDefault}Next Page");
-        
-        CreateFloatingHUDMessages(player, sb.ToString().TrimEnd(), true);
+        if (totalPages > 1) CreateFloatingHUDMessages(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true, line++);
     }
 
     private HookResult HandleSetNextMapInput(CCSPlayerController player, string input)
@@ -1628,13 +1636,12 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     private void PrintVoteOptionsToAll() { foreach (var p in GetHumanPlayers()) PrintVoteOptionsToPlayer(p); }
     private void PrintVoteOptionsToPlayer(CCSPlayerController player) { 
-        var sb = new StringBuilder();
-        sb.AppendLine($" {ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:");
+        int line = 0;
+        CreateFloatingHUDMessages(player, $" {ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:", true, line++);
         foreach (var kvp in _activeVoteOptions) 
         {
-            sb.AppendLine($" {ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}");
+            CreateFloatingHUDMessages(player, $" {ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}", true, line++);
         }
-        CreateFloatingHUDMessages(player, sb.ToString().TrimEnd(), true); 
     }
     private string GetMapName(string mapId) => _availableMaps.FirstOrDefault(m => m.Id == mapId)?.Name ?? "Unknown";
 
