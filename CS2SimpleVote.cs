@@ -928,26 +928,32 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
           if (!_nominatingPlayers.TryGetValue(player.Slot, out var maps)) return;
           int offset = _playerNominationPage.GetValueOrDefault(player.Slot, 0);
 
+          int perPage = Config.NominatePerPage;
           int startIndex = offset;
-          int endIndex = Math.Min(startIndex + 8, maps.Count);
+          int endIndex = Math.Min(startIndex + perPage, maps.Count);
           
           var sb = new StringBuilder();
           
           string warmupHtml = GetWarmupTimerHtml();
           if (!string.IsNullOrEmpty(warmupHtml))
           {
-              sb.Append(warmupHtml);
+              sb.Append($"<div style='text-align: center; margin-bottom: 30px;'>{warmupHtml}</div>");
           }
 
+          sb.Append("<div style='text-align: left;'>");
           string titleText = $"--- NOMINATE MAP ---";
           sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
-          sb.Append($"<font color='#ffffff'>Scroll to traverse. Type a number to select (or 'cancel').</font><br>");
+          sb.Append($"<font color='#ffffff'>Type 9 for next, 0 for prev. Type a number to select (or 'cancel').</font><br>");
 
           for (int i = startIndex; i < endIndex; i++) { 
               int displayNum = (i - startIndex) + 1; 
               sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
           }
-          sb.Append("</font>");
+          if (maps.Count > perPage)
+          {
+              sb.Append($"<font color='#aaaaaa'>[9] Next page  |  [0] Prev page</font><br>");
+          }
+          sb.Append("</font></div>");
           
           player.PrintToCenterHtml(sb.ToString(), 1);
       }
@@ -956,10 +962,24 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
       {
           LogRoutine(new { player, input }, null);
           if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseNominationMenu(player); player.PrintToChat($" {ColorDefault}Nomination cancelled."); return HookResult.Handled; }
-          if (int.TryParse(input, out int selection) && selection >= 1 && selection <= 8)
+          
+          if (!_nominatingPlayers.TryGetValue(player.Slot, out var maps)) return HookResult.Continue;
+          int offset = _playerNominationPage.GetValueOrDefault(player.Slot, 0);
+          int perPage = Config.NominatePerPage;
+
+          if (input == "9") 
           {
-              var maps = _nominatingPlayers[player.Slot];
-              int offset = _playerNominationPage.GetValueOrDefault(player.Slot, 0);
+              if (offset + perPage < maps.Count) _playerNominationPage[player.Slot] = offset + perPage;
+              return HookResult.Handled;
+          }
+          if (input == "0") 
+          {
+              if (offset - perPage >= 0) _playerNominationPage[player.Slot] = offset - perPage;
+              return HookResult.Handled;
+          }
+
+          if (int.TryParse(input, out int selection) && selection >= 1 && selection <= perPage)
+          {
               int realIndex = offset + selection - 1;
               if (realIndex >= 0 && realIndex < maps.Count)
               {
@@ -1052,26 +1072,32 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (!_forcemapPlayers.TryGetValue(player.Slot, out var maps)) return;
         int offset = _playerForcemapPage.GetValueOrDefault(player.Slot, 0);
 
+        int perPage = 8;
         int startIndex = offset;
-        int endIndex = Math.Min(startIndex + 8, maps.Count);
+        int endIndex = Math.Min(startIndex + perPage, maps.Count);
         
         var sb = new StringBuilder();
         
         string warmupHtml = GetWarmupTimerHtml();
         if (!string.IsNullOrEmpty(warmupHtml))
         {
-            sb.Append(warmupHtml);
+            sb.Append($"<div style='text-align: center; margin-bottom: 30px;'>{warmupHtml}</div>");
         }
 
+        sb.Append("<div style='text-align: left;'>");
         string titleText = $"--- FORCEMAP ---";
         sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
-        sb.Append($"<font color='#ffffff'>Scroll to traverse. Type a number to select (or 'cancel').</font><br>");
+        sb.Append($"<font color='#ffffff'>Type 9 for next, 0 for prev. Type a number to select (or 'cancel').</font><br>");
 
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
             sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
         }
-        sb.Append("</font>");
+        if (maps.Count > perPage)
+        {
+            sb.Append($"<font color='#aaaaaa'>[9] Next page  |  [0] Prev page</font><br>");
+        }
+        sb.Append("</font></div>");
         
         player.PrintToCenterHtml(sb.ToString(), 1);
     }
@@ -1080,10 +1106,24 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     {
         LogRoutine(new { player, input }, null);
         if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseForcemapMenu(player); player.PrintToChat($" {ColorDefault}Forcemap cancelled."); return HookResult.Handled; }
-        if (int.TryParse(input, out int selection) && selection >= 1 && selection <= 8)
+        
+        if (!_forcemapPlayers.TryGetValue(player.Slot, out var maps)) return HookResult.Continue;
+        int offset = _playerForcemapPage.GetValueOrDefault(player.Slot, 0);
+        int perPage = 8;
+
+        if (input == "9") 
         {
-            var maps = _forcemapPlayers[player.Slot];
-            int offset = _playerForcemapPage.GetValueOrDefault(player.Slot, 0);
+            if (offset + perPage < maps.Count) _playerForcemapPage[player.Slot] = offset + perPage;
+            return HookResult.Handled;
+        }
+        if (input == "0") 
+        {
+            if (offset - perPage >= 0) _playerForcemapPage[player.Slot] = offset - perPage;
+            return HookResult.Handled;
+        }
+
+        if (int.TryParse(input, out int selection) && selection >= 1 && selection <= perPage)
+        {
             int realIndex = offset + selection - 1;
             if (realIndex >= 0 && realIndex < maps.Count)
             {
@@ -1144,26 +1184,32 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         if (!_setnextmapPlayers.TryGetValue(player.Slot, out var maps)) return;
         int offset = _playerSetNextMapPage.GetValueOrDefault(player.Slot, 0);
 
+        int perPage = 8;
         int startIndex = offset;
-        int endIndex = Math.Min(startIndex + 8, maps.Count);
+        int endIndex = Math.Min(startIndex + perPage, maps.Count);
         
         var sb = new StringBuilder();
         
         string warmupHtml = GetWarmupTimerHtml();
         if (!string.IsNullOrEmpty(warmupHtml))
         {
-            sb.Append(warmupHtml);
+            sb.Append($"<div style='text-align: center; margin-bottom: 30px;'>{warmupHtml}</div>");
         }
 
+        sb.Append("<div style='text-align: left;'>");
         string titleText = $"--- SETNEXTMAP ---";
         sb.Append($"<font class='mono-spaced-font' color='#ffffff'>{titleText}</font><font class='fontSize-sm stratum-font'><br>");
-        sb.Append($"<font color='#ffffff'>Scroll to traverse. Type a number to select (or 'cancel').</font><br>");
+        sb.Append($"<font color='#ffffff'>Type 9 for next, 0 for prev. Type a number to select (or 'cancel').</font><br>");
 
         for (int i = startIndex; i < endIndex; i++) { 
             int displayNum = (i - startIndex) + 1; 
             sb.Append($"<font color='#90ee90'>[{displayNum}]</font> <font color='#ffffff'>{maps[i].Name}</font><br>"); 
         }
-        sb.Append("</font>");
+        if (maps.Count > perPage)
+        {
+            sb.Append($"<font color='#aaaaaa'>[9] Next page  |  [0] Prev page</font><br>");
+        }
+        sb.Append("</font></div>");
         
         player.PrintToCenterHtml(sb.ToString(), 1);
     }
@@ -1172,10 +1218,24 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     {
         LogRoutine(new { player, input }, null);
         if (input.Equals("cancel", StringComparison.OrdinalIgnoreCase)) { CloseSetNextMapMenu(player); player.PrintToChat($" {ColorDefault}SetNextMap cancelled."); return HookResult.Handled; }
-        if (int.TryParse(input, out int selection) && selection >= 1 && selection <= 8)
+        
+        if (!_setnextmapPlayers.TryGetValue(player.Slot, out var maps)) return HookResult.Continue;
+        int offset = _playerSetNextMapPage.GetValueOrDefault(player.Slot, 0);
+        int perPage = 8;
+        
+        if (input == "9") 
         {
-            var maps = _setnextmapPlayers[player.Slot];
-            int offset = _playerSetNextMapPage.GetValueOrDefault(player.Slot, 0);
+            if (offset + perPage < maps.Count) _playerSetNextMapPage[player.Slot] = offset + perPage;
+            return HookResult.Handled;
+        }
+        if (input == "0") 
+        {
+            if (offset - perPage >= 0) _playerSetNextMapPage[player.Slot] = offset - perPage;
+            return HookResult.Handled;
+        }
+
+        if (int.TryParse(input, out int selection) && selection >= 1 && selection <= perPage)
+        {
             int realIndex = offset + selection - 1;
             if (realIndex >= 0 && realIndex < maps.Count)
             {
@@ -1476,9 +1536,10 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         string warmupHtml = GetWarmupTimerHtml();
         if (!string.IsNullOrEmpty(warmupHtml))
         {
-            sb.Append(warmupHtml);
+            sb.Append($"<div style='text-align: center; margin-bottom: 30px;'>{warmupHtml}</div>");
         }
 
+        sb.Append("<div style='text-align: left;'>");
         string titleText = "--- Type a number in chat to vote ---";
         if (_voteInProgress && _forceVoteTimeRemaining > 0)
         {
@@ -1493,7 +1554,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             sb.Append($"<font color='#ffffff'>[{kvp.Key}]</font> <font color='#90ee90'>{GetMapName(kvp.Value)}</font><br>");
         }
 
-        sb.Append("</font>");
+        sb.Append("</font></div>");
 
         player.PrintToCenterHtml(sb.ToString(), 1);
     }
