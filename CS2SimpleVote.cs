@@ -59,6 +59,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private readonly Dictionary<int, int> _playerActiveCount = new();
     private readonly Dictionary<int, int> _playerCurrentIndex = new();
     private readonly Dictionary<int, List<CPointWorldText>> _playerPersistentHUDs = new();
+    private readonly Dictionary<int, List<CPointWorldText>> _allPlayerTexts = new();
     private readonly Dictionary<int, CPointOrient> _playerPointOrients = new();
     
     private Dictionary<char, System.Drawing.Color> ChatColors = new Dictionary<char, System.Drawing.Color>
@@ -130,9 +131,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 orient.DispatchSpawn();
                 
                 Vector orientPos = new Vector(pawn.AbsOrigin.X, pawn.AbsOrigin.Y, pawn.AbsOrigin.Z + pawn.ViewOffset.Z);
-                orient.Teleport(orientPos, null, null);
+                
                 orient.AcceptInput("SetParent", pawn, null, "!activator");
                 orient.AcceptInput("SetTarget", pawn, null, "!activator");
+                orient.Teleport(orientPos, pawn.EyeAngles, null);
+                
                 _playerPointOrients[player.Slot] = orient;
             }
         }
@@ -190,11 +193,13 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         );
 
         QAngle angle = new QAngle(0, eyeAngles.Y + 270.0f, 90.0f - eyeAngles.X);
-        wp.Teleport(origin, angle, new Vector(0,0,0));
         wp.DispatchSpawn();
-        
+
         if (_playerPointOrients.ContainsKey(player.Slot) && _playerPointOrients[player.Slot] != null && _playerPointOrients[player.Slot].IsValid) { wp.AcceptInput("SetParent", _playerPointOrients[player.Slot], null, "!activator"); } else { wp.AcceptInput("SetParent", player.PlayerPawn.Value, null, "!activator"); }
+        wp.Teleport(origin, angle, new Vector(0,0,0));
         wp.AcceptInput("SetMessage", wp, wp, message);
+        if (!_allPlayerTexts.ContainsKey(player.Slot)) _allPlayerTexts[player.Slot] = new();
+        _allPlayerTexts[player.Slot].Add(wp);
 
         if (isPersistent)
         {
@@ -275,6 +280,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     public override void Load(bool hotReload)
     {
+        RegisterListener<Listeners.CheckTransmit>(OnTransmit);
         // Construct the path to the config folder manually:
         // ModuleDirectory is ".../plugins/CS2SimpleVote"
         // We want ".../configs/plugins/CS2SimpleVote"
@@ -317,6 +323,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
     public override void Unload(bool hotReload)
     {
+        RemoveListener<Listeners.CheckTransmit>(OnTransmit);
         LogRoutine(new { hotReload }, null);
         _unloaded = true;
         _logQueue.CompleteAdding();
@@ -1393,7 +1400,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _voteInProgress = false; _voteFinished = true; _reminderTimer?.Kill(); _reminderTimer = null;
         _centerMessageTimer?.Kill(); _centerMessageTimer = null;
 
-        foreach (var kvp in _playerPersistentHUDs)
+        foreach (var kvp in _allPlayerTexts)
         {
             foreach (var wp in kvp.Value) if (wp != null && wp.IsValid) FadeAndRemoveHUD(wp, kvp.Key);
         }
@@ -1573,6 +1580,31 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 Console.WriteLine($"[CS2SimpleVote] Logger failed: {ex.Message}");
             }
         }, token);
+    }
+
+    
+    private void OnTransmit(CCheckTransmitInfoList infoList)
+    {
+        foreach ((CCheckTransmitInfo info, CCSPlayerController? player) in infoList)
+        {
+            if (player == null || !player.IsValid || !player.PlayerPawn.IsValid || player.PlayerPawn.Value == null) continue;
+
+            foreach (var kvp in _allPlayerTexts)
+            {
+                kvp.Value.RemoveAll(w => w == null || !w.IsValid);
+
+                if (player.Slot != kvp.Key)
+                {
+                    foreach (var wp in kvp.Value)
+                    {
+                        if (wp != null && wp.IsValid)
+                        {
+                            info.TransmitEntities.Remove((int)wp.Index);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private void LogRoutine(object? inputs = null, object? outputs = null, [System.Runtime.CompilerServices.CallerMemberName] string routine = "")
