@@ -59,6 +59,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private readonly Dictionary<int, int> _playerActiveCount = new();
     private readonly Dictionary<int, int> _playerCurrentIndex = new();
     private readonly Dictionary<int, List<CPointWorldText>> _playerPersistentHUDs = new();
+    private readonly Dictionary<int, CPointOrient> _playerPointOrients = new();
     
     private Dictionary<char, System.Drawing.Color> ChatColors = new Dictionary<char, System.Drawing.Color>
     {
@@ -80,21 +81,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         { '\x10', System.Drawing.Color.Goldenrod }
     };
 
-    private void SendChatAllAndFloatMessage(string message, bool isPersistent = false)
-    {
-        foreach (var p in Utilities.GetPlayers().Where(x => x is { IsValid: true, IsBot: false }))
-        {
-            CreateFloatingHUDMessages(p, message, isPersistent);
-        }
-    }
-
-    private void SendChatAndFloatMessage(CCSPlayerController player, string message, bool isPersistent = false)
-    {
-        if (player is { IsValid: true, IsBot: false })
-        {
-            CreateFloatingHUDMessages(player, message, isPersistent);
-        }
-    }
+    
 
     private void FadeAndRemoveHUD(CPointWorldText wp, int playerSlot)
     {
@@ -127,11 +114,30 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     private void CreateFloatingHUDMessages(CCSPlayerController player, string message, bool isPersistent = false)
     {
         message = message.Trim();
-        message = System.Text.RegularExpressions.Regex.Replace(message, @"[-]", "");
+        message = System.Text.RegularExpressions.Regex.Replace(message, @"[\-\]", "");
 
         if (player.PlayerPawn.Value == null || player.PlayerPawn.Value.AbsOrigin == null) return;
+        
+        var pawn = player.PlayerPawn.Value;
 
-        var eyeAngles = player.PlayerPawn.Value.EyeAngles;
+        if (!_playerPointOrients.ContainsKey(player.Slot) || _playerPointOrients[player.Slot] == null || !_playerPointOrients[player.Slot].IsValid)
+        {
+            var orient = Utilities.CreateEntityByName<CPointOrient>("point_orient");
+            if (orient != null && orient.IsValid)
+            {
+                orient.Active = true;
+                orient.GoalDirection = PointOrientGoalDirectionType_t.eEyesForward;
+                orient.DispatchSpawn();
+                
+                Vector orientPos = new Vector(pawn.AbsOrigin.X, pawn.AbsOrigin.Y, pawn.AbsOrigin.Z + pawn.ViewOffset.Z);
+                orient.Teleport(orientPos, null, null);
+                orient.AcceptInput("SetParent", pawn, null, "!activator");
+                orient.AcceptInput("SetTarget", pawn, null, "!activator");
+                _playerPointOrients[player.Slot] = orient;
+            }
+        }
+        
+        var eyeAngles = pawn.EyeAngles;
         float pitch = (float)(eyeAngles.X * Math.PI / 180.0f);
         float yaw = (float)(eyeAngles.Y * Math.PI / 180.0f);
         float fwdX = (float)(Math.Cos(pitch) * Math.Cos(yaw));
@@ -145,7 +151,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         float upZ = fwdX * rightY - fwdY * rightX;
 
         // --- CASCADING LOGIC ---
-        if (!_playerActiveCount.ContainsKey(player.Slot)) _playerActiveCount[player.Slot] = 0;
+         _playerActiveCount[player.Slot] = 0;
         if (!_playerCurrentIndex.ContainsKey(player.Slot)) _playerCurrentIndex[player.Slot] = 0;
 
         if (_playerActiveCount[player.Slot] == 0) _playerCurrentIndex[player.Slot] = 0;
@@ -155,9 +161,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         _playerActiveCount[player.Slot]++;
 
         float fwdDist = 120.0f;
-        float rightDistOffset = 20.0f; 
+        float rightDistOffset = 45.0f; 
         float baseUpDist = 12.0f; 
-        float lineSpacing = 3.5f; 
+        float lineSpacing = 8.0f; 
         float upDist = baseUpDist - (lineIndex * lineSpacing); 
 
         var wp = Utilities.CreateEntityByName<CPointWorldText>("point_worldtext");
@@ -165,11 +171,11 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
 
         wp.Enabled = true;
         wp.MessageText = ""; 
-        wp.FontSize = 18;
+        wp.FontSize = 14;
         wp.FontName = "Arial";
         wp.Fullbright = true;
         wp.WorldUnitsPerPx = 0.25f; 
-        wp.Color = System.Drawing.Color.White;
+        wp.Color = System.Drawing.Color.Lime;
         wp.JustifyHorizontal = PointWorldTextJustifyHorizontal_t.POINT_WORLD_TEXT_JUSTIFY_HORIZONTAL_LEFT;
         wp.JustifyVertical = PointWorldTextJustifyVertical_t.POINT_WORLD_TEXT_JUSTIFY_VERTICAL_TOP;
         wp.ReorientMode = PointWorldTextReorientMode_t.POINT_WORLD_TEXT_REORIENT_NONE;
@@ -187,7 +193,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         wp.Teleport(origin, angle, new Vector(0,0,0));
         wp.DispatchSpawn();
         
-        wp.AcceptInput("SetParent", player.PlayerPawn.Value, null, "!activator");
+        if (_playerPointOrients.ContainsKey(player.Slot) && _playerPointOrients[player.Slot] != null && _playerPointOrients[player.Slot].IsValid) { wp.AcceptInput("SetParent", _playerPointOrients[player.Slot], null, "!activator"); } else { wp.AcceptInput("SetParent", player.PlayerPawn.Value, null, "!activator"); }
         wp.AcceptInput("SetMessage", wp, wp, message);
 
         if (isPersistent)
@@ -835,7 +841,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     {
         LogRoutine(new { player }, null);
         if (string.IsNullOrEmpty(_nextMapName)) { if (IsValidPlayer(player)) player!.PrintToChat($" {ColorDefault}The next map has not been decided yet."); return; }
-        SendChatAllAndFloatMessage($" {ColorDefault}The next map will be: {ColorGreen}{_nextMapName}");
+        Server.PrintToChatAll($" {ColorDefault}The next map will be: {ColorGreen}{_nextMapName}");
     }
 
     private void PrintLastMap(CCSPlayerController? player)
@@ -984,7 +990,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
         player.PrintToChat($" {ColorDefault}Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
         for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; player.PrintToChat($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
-        if (totalPages > 1) SendChatAndFloatMessage(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
+        if (totalPages > 1) CreateFloatingHUDMessages(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
     }
 
     private HookResult HandleNominationInput(CCSPlayerController player, string input)
@@ -1089,7 +1095,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
         player.PrintToChat($" {ColorDefault}[Forcemap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
         for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; player.PrintToChat($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
-        if (totalPages > 1) SendChatAndFloatMessage(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
+        if (totalPages > 1) CreateFloatingHUDMessages(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
     }
 
     private HookResult HandleForcemapInput(CCSPlayerController player, string input)
@@ -1164,7 +1170,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         int endIndex = Math.Min(startIndex + Config.NominatePerPage, maps.Count);
         player.PrintToChat($" {ColorDefault}[SetNextMap] Page {page + 1}/{totalPages}. Type number to select (or 'cancel'):");
         for (int i = startIndex; i < endIndex; i++) { int displayNum = (i - startIndex) + 1; player.PrintToChat($" {ColorGreen}[{displayNum}] {ColorDefault}{maps[i].Name}"); }
-        if (totalPages > 1) SendChatAndFloatMessage(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
+        if (totalPages > 1) CreateFloatingHUDMessages(player, $" {ColorGreen}[0] {ColorDefault}Next Page", true);
     }
 
     private HookResult HandleSetNextMapInput(CCSPlayerController player, string input)
@@ -1196,9 +1202,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         string rawMsg = $"{player.PlayerName} has set the next map to {selectedMap.Name}.";
         string dashes = new string('-', rawMsg.Length);
 
-        SendChatAllAndFloatMessage($" {ColorDefault}{dashes}");
+        Server.PrintToChatAll($" {ColorDefault}{dashes}");
         Server.PrintToChatAll($" {ColorGreen}{player.PlayerName} {ColorDefault}has set the next map to {ColorGreen}{selectedMap.Name}{ColorDefault}.");
-        SendChatAllAndFloatMessage($" {ColorDefault}{dashes}");
+        Server.PrintToChatAll($" {ColorDefault}{dashes}");
     }
 
     private void CloseSetNextMapMenu(CCSPlayerController player) { _setnextmapPlayers.Remove(player.Slot); _playerSetNextMapPage.Remove(player.Slot); }
@@ -1307,7 +1313,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         }
 
         for (int i = 0; i < mapsToVote.Count; i++) _activeVoteOptions[i + 1] = mapsToVote[i].Id;
-        SendChatAllAndFloatMessage($" {ColorDefault}--- {ColorGreen}Vote for the Next Map! {ColorDefault}---");
+        Server.PrintToChatAll($" {ColorDefault}--- {ColorGreen}Vote for the Next Map! {ColorDefault}---");
 
         if (isRtv)
         {
@@ -1374,7 +1380,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
                 list.Clear();
             }
 
-            SendChatAndFloatMessage(player, $" {ColorDefault}You voted for: {ColorGreen}{GetMapName(_activeVoteOptions[option])}{ColorDefault}"); 
+            player.PrintToChat($" {ColorDefault}You voted for: {ColorGreen}{GetMapName(_activeVoteOptions[option])}{ColorDefault}"); 
             return HookResult.Handled; 
         }
         return HookResult.Continue;
@@ -1401,14 +1407,14 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             winningMapId = _previousWinningMapId;
             _nextMapName = _previousWinningMapName;
             voteCount = 0; // Or -1 to indicate override?
-            SendChatAllAndFloatMessage($" {ColorDefault}No votes cast! Keeping previously selected next map.");
+            Server.PrintToChatAll($" {ColorDefault}No votes cast! Keeping previously selected next map.");
         }
         else if (_playerVotes.Count == 0)
         {
             if (_activeVoteOptions.Count == 0) return;
             var randomKey = _activeVoteOptions.Keys.ElementAt(new Random().Next(_activeVoteOptions.Count));
             winningMapId = _activeVoteOptions[randomKey]; _nextMapName = GetMapName(winningMapId); voteCount = 0;
-            SendChatAllAndFloatMessage($" {ColorDefault}No votes cast! Randomly selecting a map...");
+            Server.PrintToChatAll($" {ColorDefault}No votes cast! Randomly selecting a map...");
         }
         else
         {
@@ -1424,9 +1430,9 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
         string rawMsg = $"Winner: {_nextMapName}" + (voteCount > 0 ? $" with {voteCount} votes!" : " (Random/Previous)");
         string dashes = new string('-', rawMsg.Length);
 
-        SendChatAllAndFloatMessage($" {ColorDefault}{dashes}");
+        Server.PrintToChatAll($" {ColorDefault}{dashes}");
         Server.PrintToChatAll($" {ColorDefault}Winner: {ColorGreen}{_nextMapName}{ColorDefault}" + (voteCount > 0 ? $" with {ColorGreen}{voteCount}{ColorDefault} votes!" : " (Random/Previous)"));
-        SendChatAllAndFloatMessage($" {ColorDefault}{dashes}");
+        Server.PrintToChatAll($" {ColorDefault}{dashes}");
         
         if (voteCount > 0 && Config.ShowMidVoteProgress)
         {
@@ -1463,7 +1469,7 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
     }
 
     private void PrintVoteOptionsToAll() { foreach (var p in GetHumanPlayers()) PrintVoteOptionsToPlayer(p); }
-    private void PrintVoteOptionsToPlayer(CCSPlayerController player) { SendChatAndFloatMessage(player, $" {ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:", true); foreach (var kvp in _activeVoteOptions) SendChatAndFloatMessage(player, $" {ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}", true); }
+    private void PrintVoteOptionsToPlayer(CCSPlayerController player) { CreateFloatingHUDMessages(player, $" {ColorDefault}Type the {ColorGreen}number{ColorDefault} to vote:", true); foreach (var kvp in _activeVoteOptions) CreateFloatingHUDMessages(player, $" {ColorGreen}[{kvp.Key}] {ColorDefault}{GetMapName(kvp.Value)}", true); }
     private string GetMapName(string mapId) => _availableMaps.FirstOrDefault(m => m.Id == mapId)?.Name ?? "Unknown";
 
     private void PrintVoteProgress()
@@ -1477,12 +1483,12 @@ public class CS2SimpleVote : BasePlugin, IPluginConfig<VoteConfig>
             .OrderByDescending(x => x.Count)
             .ToList();
 
-        SendChatAllAndFloatMessage($" {ColorDefault}--- {ColorGreen}Vote Results {ColorDefault}---");
+        Server.PrintToChatAll($" {ColorDefault}--- {ColorGreen}Vote Results {ColorDefault}---");
         foreach (var vote in voteCounts)
         {
             if (_activeVoteOptions.TryGetValue(vote.OptionId, out string? mapId))
             {
-                SendChatAllAndFloatMessage($" {ColorGreen}{vote.Count} {ColorDefault}votes - {ColorGreen}{GetMapName(mapId)}");
+                Server.PrintToChatAll($" {ColorGreen}{vote.Count} {ColorDefault}votes - {ColorGreen}{GetMapName(mapId)}");
             }
         }
     }
